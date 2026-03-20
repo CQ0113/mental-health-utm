@@ -4,7 +4,7 @@ use App\Http\Controllers\ForumModerationController;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
 
-Route::inertia('/', 'welcome')->name('home');
+Route::redirect('/', '/psycare')->name('home');
 
 Route::post('/psycare/forum/moderate', ForumModerationController::class)
 	->withoutMiddleware([ValidateCsrfToken::class])
