@@ -6,6 +6,7 @@ import { adminAppointmentLocationOptions, adminCounselorOptions } from '@/lib/ad
 import { mockClientProfiles } from '@/lib/mock-clients';
 import { getAdminManagedSchedule } from '@/lib/psycare-admin-slots';
 import type { AdminScheduleDay, SessionType } from '@/lib/psycare-admin-slots';
+import ReportModal from './ReportModal';
 import { pastAppointments } from '@/lib/psycare-appointment-records';
 import {
     ATTENDANCE_UPDATED_EVENT,
@@ -47,6 +48,10 @@ const getStatusBadgeClass = (
 
 type CounsellorAppointmentItem = (typeof pastAppointments)[number] & {
     counsellorContinuationNeeded: boolean | null;
+    clientName: string;
+    appointmentType: string;
+    sessionMode: 'individual' | 'group';
+    location: string;
 };
 
 type AppointmentCreateForm = {
@@ -57,6 +62,7 @@ type AppointmentCreateForm = {
     groupClientSearch: string;
     referenceNo: string;
     appointmentType: string;
+    purposeNote: string;
     sessionType: SessionType;
     location: string;
     counselorName: string;
@@ -186,23 +192,33 @@ export default function CounsellorAppointmentsPage() {
     const { confirm, confirmDialog } = useConfirmDialog();
     const [adminSchedule] = useState<AdminScheduleDay[]>(() => getAdminManagedSchedule());
     const [appointments, setAppointments] = useState<CounsellorAppointmentItem[]>(() =>
-        pastAppointments.map((appointment) => ({
-            ...appointment,
-            counsellorContinuationNeeded:
-                appointment.status === 'follow-up'
-                    ? true
-                    : appointment.status === 'closed'
-                      ? false
-                      : null,
-        })),
+        pastAppointments.map((appointment, idx) => {
+            // For now, assign a mock client in round-robin
+            const client = mockClientProfiles[idx % mockClientProfiles.length];
+            return {
+                ...appointment,
+                clientName: client?.fullName ?? 'Assigned Client',
+                appointmentType: 'SUSULAN', // or 'BARU', mock for now
+                sessionMode: 'individual', // or 'group', mock for now
+                location: appointment.sessionType === 'online' ? 'ONLINE' : 'PUSAT KAUNSELING (JB)',
+                counsellorContinuationNeeded:
+                    appointment.status === 'follow-up'
+                        ? true
+                        : appointment.status === 'closed'
+                        ? false
+                        : null,
+            };
+        }),
     );
     const [viewingAppointment, setViewingAppointment] = useState<CounsellorAppointmentItem | null>(null);
     const [viewingAttendanceRef, setViewingAttendanceRef] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [viewingReportRef, setViewingReportRef] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<
         'all' | 'counsellor-reviewing' | 'approved' | 'on-going' | 'complete' | 'follow-up' | 'closed'
     >('all');
     const [sessionTypeFilter, setSessionTypeFilter] = useState<'all' | 'online' | 'physical'>('all');
+    const [locationFilter, setLocationFilter] = useState<string>('all');
     const [isCreateAppointmentOpen, setIsCreateAppointmentOpen] = useState(false);
     const [createForm, setCreateForm] = useState<AppointmentCreateForm>({
         sessionMode: 'individual',
@@ -212,6 +228,7 @@ export default function CounsellorAppointmentsPage() {
         groupClientSearch: '',
         referenceNo: 'PSY-NEW-00001',
         appointmentType: 'BARU',
+        purposeNote: '',
         sessionType: 'physical',
         location: adminAppointmentLocationOptions[0],
         counselorName: adminCounselorOptions[0] ?? '',
@@ -226,23 +243,47 @@ export default function CounsellorAppointmentsPage() {
     const [flashMessage, setFlashMessage] = useState('');
     const [attendanceByRef, setAttendanceByRef] = useState<Record<string, AttendanceSession>>(() =>
         toAttendanceMap(
-            pastAppointments.map((appointment) => ({
-                ...appointment,
-                counsellorContinuationNeeded:
-                    appointment.status === 'follow-up'
-                        ? true
-                        : appointment.status === 'closed'
-                          ? false
-                          : null,
-            })),
+            pastAppointments.map((appointment, idx) => {
+                const client = mockClientProfiles[idx % mockClientProfiles.length];
+                return {
+                    ...appointment,
+                    clientName: client?.fullName ?? 'Assigned Client',
+                    appointmentType: 'SUSULAN',
+                    sessionMode: 'individual',
+                    location: appointment.sessionType === 'online' ? 'ONLINE' : 'PUSAT KAUNSELING (JB)',
+                    counsellorContinuationNeeded:
+                        appointment.status === 'follow-up'
+                            ? true
+                            : appointment.status === 'closed'
+                            ? false
+                            : null,
+                };
+            }),
         ),
     );
     const [counsellorNoteByRef, setCounsellorNoteByRef] = useState<Record<string, string>>({});
     const [meetingLinkByRef, setMeetingLinkByRef] = useState<Record<string, string>>({});
-
-    const submittedFormByReference = useMemo(
-        () => buildSubmittedFormByReference(appointments),
-        [appointments],
+    const [submittedFormByReference, setSubmittedFormByReference] = useState<
+        Record<string, SubmittedClientForm>
+    >(() =>
+        buildSubmittedFormByReference(
+            pastAppointments.map((appointment, idx) => {
+                const client = mockClientProfiles[idx % mockClientProfiles.length];
+                return {
+                    ...appointment,
+                    clientName: client?.fullName ?? 'Assigned Client',
+                    appointmentType: 'SUSULAN',
+                    sessionMode: 'individual',
+                    location: appointment.sessionType === 'online' ? 'ONLINE' : 'PUSAT KAUNSELING (JB)',
+                    counsellorContinuationNeeded:
+                        appointment.status === 'follow-up'
+                            ? true
+                            : appointment.status === 'closed'
+                            ? false
+                            : null,
+                };
+            }),
+        ),
     );
 
     const getSlotsForDate = useCallback((isoDate: string) => {
@@ -403,6 +444,10 @@ export default function CounsellorAppointmentsPage() {
             sessionType: createForm.sessionType,
             status: 'approved',
             counsellorContinuationNeeded: null,
+            clientName: createForm.clientName,
+            appointmentType: createForm.appointmentType,
+            sessionMode: createForm.sessionMode,
+            location: createForm.sessionType === 'online' ? 'ONLINE' : createForm.location,
         };
 
         setAppointments((current) => [newAppointment, ...current]);
@@ -441,6 +486,33 @@ export default function CounsellorAppointmentsPage() {
             ),
         }));
 
+        const matchedClient = mockClientProfiles.find((client) => client.id === createForm.clientId);
+        setSubmittedFormByReference((current) => ({
+            ...current,
+            [newAppointment.referenceNo]: {
+                clientName: resolvedClientName,
+                clientTypeLabel:
+                    createForm.sessionMode === 'group'
+                        ? 'GROUP'
+                        : matchedClient?.clientType === 'staff'
+                          ? 'STAF'
+                          : 'PELAJAR',
+                matrixOrWorkerNo:
+                    createForm.sessionMode === 'group'
+                        ? '-'
+                        : matchedClient?.clientType === 'staff'
+                          ? matchedClient.workerNo ?? '-'
+                          : matchedClient?.matrixNo ?? '-',
+                faculty: createForm.sessionMode === 'group' ? '-' : matchedClient?.faculty ?? '-',
+                appointmentNeed:
+                    createForm.purposeNote.trim() || 'Temujanji dibuat melalui kaunselor.',
+                attendedBefore: 'TIDAK',
+                attachmentDescription: 'Lampiran dikemaskini oleh pemohon.',
+                applicantNote: 'Permohonan diterima melalui aliran kaunselor.',
+                submittedAt: appointmentDate,
+            },
+        }));
+
         setIsCreateAppointmentOpen(false);
         const nextReferenceNo = `PSY-NEW-${`${appointments.length + 1}`.padStart(5, '0')}`;
 
@@ -453,6 +525,7 @@ export default function CounsellorAppointmentsPage() {
             groupClientSearch: '',
             referenceNo: nextReferenceNo,
             appointmentType: 'BARU',
+            purposeNote: '',
             sessionType: 'physical',
             location: adminAppointmentLocationOptions[0],
             counselorName: adminCounselorOptions[0] ?? current.counselorName,
@@ -744,10 +817,11 @@ export default function CounsellorAppointmentsPage() {
             const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
             const matchesSessionType =
                 sessionTypeFilter === 'all' || appointment.sessionType === sessionTypeFilter;
+            const matchesLocation = locationFilter === 'all' || appointment.location === locationFilter;
 
-            return matchesSearch && matchesStatus && matchesSessionType;
+            return matchesSearch && matchesStatus && matchesSessionType && matchesLocation;
         });
-    }, [appointments, searchTerm, statusFilter, sessionTypeFilter]);
+    }, [appointments, searchTerm, statusFilter, sessionTypeFilter, locationFilter]);
 
     return (
         <>
@@ -772,6 +846,18 @@ export default function CounsellorAppointmentsPage() {
                     )}
 
                     <div className="mb-4 space-y-2 sm:flex sm:items-end sm:gap-2 sm:space-y-0">
+                                                <label className="flex flex-col">
+                                                    <span className="mb-1 text-xs font-semibold text-gray-600">Location</span>
+                                                    <select
+                                                        value={locationFilter}
+                                                        onChange={(event) => setLocationFilter(event.target.value)}
+                                                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-800 outline-none"
+                                                    >
+                                                        <option value="all">All</option>
+                                                        <option value="ONLINE">ONLINE</option>
+                                                        <option value="PUSAT KAUNSELING (JB)">PUSAT KAUNSELING (JB)</option>
+                                                    </select>
+                                                </label>
                         <label className="flex flex-col">
                             <span className="mb-1 text-xs font-semibold text-gray-600">Search</span>
                             <input
@@ -837,15 +923,19 @@ export default function CounsellorAppointmentsPage() {
                             ).length;
 
                             return (
-                                <div key={appointment.referenceNo} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                                <div key={appointment.referenceNo} className="relative rounded-lg border border-gray-200 bg-gray-50 p-4">
                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                         <div className="space-y-1 text-sm text-gray-700">
-                                            <p className="text-base font-semibold text-gray-900">{appointment.referenceNo}</p>
-                                            <p><span className="font-semibold text-gray-900">Counsellor:</span> {appointment.counselor}</p>
-                                            <p><span className="font-semibold text-gray-900">Date:</span> {appointment.date}</p>
-                                            <p><span className="font-semibold text-gray-900">Slot:</span> {appointment.slot}</p>
-                                            <p><span className="font-semibold text-gray-900">Session Type:</span> {appointment.sessionType === 'online' ? 'Online' : 'Physical'}</p>
-                                            <p><span className="font-semibold text-gray-900">Attendance:</span> {presentCount}/{attendance.participants.length} present</p>
+                                            {/* Client name as card title */}
+                                            <p className="text-base font-semibold text-gray-900">{appointment.clientName || 'Assigned Client'}</p>
+                                            <p><span className="font-semibold text-gray-900">No. Rujukan:</span> {appointment.referenceNo}</p>
+                                            <p><span className="font-semibold text-gray-900">Jenis Temujanji:</span> {appointment.appointmentType}</p>
+                                            <p><span className="font-semibold text-gray-900">Session Mode:</span> {appointment.sessionMode?.toUpperCase?.() || 'INDIVIDUAL'}</p>
+                                            <p><span className="font-semibold text-gray-900">Tarikh:</span> {appointment.date}</p>
+                                            <p><span className="font-semibold text-gray-900">Slot:</span> {appointment.slot || '-'}</p>
+                                            <p><span className="font-semibold text-gray-900">Lokasi:</span> {appointment.sessionType === 'online' ? 'ONLINE' : appointment.location}</p>
+                                            <p><span className="font-semibold text-gray-900">Jenis Sesi:</span> {appointment.sessionType === 'online' ? 'ONLINE' : 'PHYSICAL'}</p>
+                                            <p><span className="font-semibold text-gray-900">Attendance:</span> {presentCount}/{attendance.participants.length} present{appointment.sessionMode === 'group' ? ' (group)' : ' (individual)'}</p>
                                         </div>
 
                                         <div className="flex flex-wrap items-center gap-2 justify-end">
@@ -880,6 +970,14 @@ export default function CounsellorAppointmentsPage() {
                                             )}
                                         </div>
                                     </div>
+                                    {/* Report Button - bottom right */}
+                                    <button
+                                        type="button"
+                                        className="absolute bottom-3 right-3 rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-indigo-700"
+                                        onClick={() => setViewingReportRef(appointment.referenceNo)}
+                                    >
+                                        Report
+                                    </button>
                                 </div>
                             );
                         })}
@@ -892,6 +990,14 @@ export default function CounsellorAppointmentsPage() {
                     </div>
                 </section>
             </CounsellorLayout>
+
+            {/* Report Modal */}
+            {viewingReportRef && (
+                <ReportModal
+                    appointment={appointments.find(a => a.referenceNo === viewingReportRef)!}
+                    onClose={() => setViewingReportRef(null)}
+                />
+            )}
 
             {isCreateAppointmentOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
@@ -1008,6 +1114,17 @@ export default function CounsellorAppointmentsPage() {
                                     <option value="BARU">BARU</option>
                                     <option value="SUSULAN">SUSULAN</option>
                                 </select>
+                            </label>
+
+                            <label className="space-y-1 text-sm md:col-span-2">
+                                <span className="font-medium text-gray-700">Keperluan Temujanji (Purpose Note)</span>
+                                <textarea
+                                    value={createForm.purposeNote}
+                                    onChange={(event) => updateCreateFormField('purposeNote', event.target.value)}
+                                    rows={3}
+                                    placeholder="Nyatakan tujuan temujanji ini diwujudkan"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none"
+                                />
                             </label>
 
                             <label className="space-y-1 text-sm">

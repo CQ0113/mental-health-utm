@@ -23,6 +23,7 @@ type AppointmentCreateForm = {
     groupClientSearch: string;
     referenceNo: string;
     appointmentType: string;
+    purposeNote: string;
     sessionType: SessionType;
     location: string;
     counselorName: string;
@@ -276,6 +277,7 @@ export default function AdminAppointmentsPage() {
         groupClientSearch: '',
         referenceNo: 'WJB/2024/00003/1',
         appointmentType: 'BARU',
+        purposeNote: '',
         sessionType: 'physical',
         location: adminAppointmentLocationOptions[0],
         counselorName: 'ALLAN A. MARSH',
@@ -524,7 +526,8 @@ export default function AdminAppointmentsPage() {
                           ? mockClientProfiles.find((client) => client.id === createForm.clientId)?.workerNo ?? '-'
                           : mockClientProfiles.find((client) => client.id === createForm.clientId)?.matrixNo ?? '-',
                 faculty: createForm.sessionMode === 'group' ? '-' : mockClientProfiles.find((client) => client.id === createForm.clientId)?.faculty ?? '-',
-                appointmentNeed: 'Temujanji dibuat melalui admin queue.',
+                appointmentNeed:
+                    createForm.purposeNote.trim() || 'Temujanji dibuat melalui admin queue.',
                 attendedBefore: 'TIDAK',
                 attachmentDescription: 'Lampiran dikemaskini oleh pemohon.',
                 applicantNote: 'Permohonan diterima melalui aliran queue.',
@@ -550,6 +553,7 @@ export default function AdminAppointmentsPage() {
             sessionMode: 'individual',
             selectedGroupClientIds: [],
             groupClientSearch: '',
+            purposeNote: '',
         }));
         setFlashMessage(`Appointment ${newRequest.id} created successfully.`);
     };
@@ -1001,6 +1005,17 @@ export default function AdminAppointmentsPage() {
                                         <option value="BARU">BARU</option>
                                         <option value="SUSULAN">SUSULAN</option>
                                     </select>
+                                </label>
+
+                                <label className="space-y-1 text-sm md:col-span-2">
+                                    <span className="font-medium text-gray-700">Keperluan Temujanji (Purpose Note)</span>
+                                    <textarea
+                                        value={createForm.purposeNote}
+                                        onChange={(event) => updateCreateFormField('purposeNote', event.target.value)}
+                                        rows={3}
+                                        placeholder="Nyatakan tujuan temujanji ini diwujudkan"
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
+                                    />
                                 </label>
 
                                 <label className="space-y-1 text-sm">
