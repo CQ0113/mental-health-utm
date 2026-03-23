@@ -155,6 +155,17 @@ export const adminClientInitialSessionRecords = [
         status: 'VERIFIED',
         attendanceStatus: 'BELUM HADIR',
     },
+    {
+        id: 'SES-002',
+        sessionReferenceNo: 'WJB/2024/00003/2',
+        sessionCategory: 'SUSULAN',
+        appointmentType: 'SUSULAN',
+        sessionDate: '2025-01-10',
+        slotLabel: 'SLOT 1 (08:30 AM - 09:30 AM)',
+        location: 'PUSAT KAUNSELING (KL)',
+        status: 'VERIFIED',
+        attendanceStatus: 'HADIR',
+    },
 ] as const;
 
 export const adminAppointmentLocationOptions = ['PUSAT KAUNSELING (JB)', 'PUSAT KAUNSELING (KL)'];

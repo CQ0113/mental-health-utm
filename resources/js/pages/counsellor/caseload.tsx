@@ -28,7 +28,7 @@ type MockClientCase = {
     clientName: string;
     studentNo: string;
     email: string;
-    status: 'open' | 'completed' | 'closed';
+    status: 'open' | 'completed' | 'closed' | 'counsellor-reviewing';
     emotionHistory: EmotionEntry[];
     latestPsychometricResult: MockPsychometricResult | null;
     counsellorNotes: string;

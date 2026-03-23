@@ -1,7 +1,7 @@
 import { Head, router } from '@inertiajs/react';
 import { Layout } from '@/components/psycare';
+import type {AppointmentRecord} from '@/lib/psycare-appointment-records';
 import {
-    type AppointmentRecord,
     pastAppointments,
 } from '@/lib/psycare-appointment-records';
 import { usePsycareLanguage } from '@/lib/psycare-language';
@@ -50,11 +50,11 @@ export default function PsyCareAppointmentHistoryPage() {
                   physical: 'Fizikal',
               };
 
+
     const handleFollowUp = (referenceNo: string, status: AppointmentRecord['status']) => {
-        if (status !== 'open') {
+        if (status !== 'follow-up') {
             return;
         }
-
         router.visit(`/psycare/permohonan?mode=followup&reference=${encodeURIComponent(referenceNo)}`);
     };
 
@@ -97,16 +97,16 @@ export default function PsyCareAppointmentHistoryPage() {
                                                 : copy.physical}
                                         </td>
                                         <td className="px-4 py-3 text-gray-700">
-                                            {record.status === 'open' ? copy.open : copy.closed}
+                                            {record.status === 'follow-up' ? copy.followUp : record.status === 'open' ? copy.open : copy.closed}
                                         </td>
                                         <td className="px-4 py-3">
                                             <button
                                                 type="button"
                                                 onClick={() => handleFollowUp(record.referenceNo, record.status)}
-                                                disabled={record.status !== 'open'}
+                                                disabled={record.status !== 'follow-up'}
                                                 className="rounded-lg bg-red-800 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-red-900 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500"
                                             >
-                                                {record.status === 'open' ? copy.followUp : copy.unavailable}
+                                                {record.status === 'follow-up' ? copy.followUp : copy.unavailable}
                                             </button>
                                         </td>
                                     </tr>

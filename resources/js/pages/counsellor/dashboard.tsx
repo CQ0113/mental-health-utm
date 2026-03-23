@@ -1,14 +1,14 @@
 import { Head, Link } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import CounsellorLayout from '@/components/counsellor/Layout';
+import { pastAppointments } from '@/lib/psycare-appointment-records';
 import {
     counsellorPortalMockData,
     getPsychometricResults,
     PSYCHOMETRIC_RESULTS_STORAGE_KEY,
     PSYCHOMETRIC_RESULTS_UPDATED_EVENT,
-    type PsychometricResult,
 } from '@/lib/psycare-data';
-import { pastAppointments } from '@/lib/psycare-appointment-records';
+import type {PsychometricResult} from '@/lib/psycare-data';
 
 export default function CounsellorDashboardPage() {
     const [recentPsychometricResults, setRecentPsychometricResults] = useState<PsychometricResult[]>([]);
