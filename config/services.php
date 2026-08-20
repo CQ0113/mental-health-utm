@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Online session meeting rooms (App\Services\MeetingLinkService, Phase 2)
+    // + webhook-driven auto-attendance (Phase 4, TA04). Not provisioned yet —
+    // see docs/implementation-plan.md §5.2.
+    'daily_co' => [
+        'api_key' => env('DAILY_CO_API_KEY'),
+    ],
+
 ];
