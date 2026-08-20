@@ -1,28 +1,31 @@
-import { Head } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import AdminLayout from '@/components/admin/Layout';
 import { useConfirmDialog } from '@/components/shared/useConfirmDialog';
-import {
-    adminPpsiInitialRecords,
-    adminPpsiLocationOptions,
-    adminPpsiStaffDirectory,
-} from '@/lib/admin-mock-data';
+import { adminPpsiStaffDirectory } from '@/lib/admin-mock-data';
 
 type PpsiType = 'staff' | 'trainee';
-type ActiveStatus = 'active' | 'inactive';
+type ActiveStatus = 'active' | 'inactive' | 'suspended';
+
+type LocationOption = {
+    id: string;
+    name: string;
+};
 
 type PpsiRecord = {
     id: string;
-    ppsiNo: string;
+    ppsiNo: string | null;
+    workerNo: string | null;
     type: PpsiType;
     name: string;
-    organization: string;
+    organization: string | null;
+    locationId: string | null;
     location: string;
     status: ActiveStatus;
-    startDate: string;
-    endDate: string;
-    email: string;
-    phone: string;
+    startDate: string | null;
+    endDate: string | null;
+    email: string | null;
+    phone: string | null;
 };
 
 type StaffDirectoryItem = {
@@ -35,26 +38,25 @@ type StaffDirectoryItem = {
 };
 
 type PpsiForm = {
-    type: PpsiType;
-    workerNo: string;
-    idNo: string;
+    counsellor_type: PpsiType;
+    worker_no: string;
+    ppsi_no: string;
     name: string;
-    role: string;
     organization: string;
     email: string;
     phone: string;
-    supervisorName: string;
-    supervisorPhone: string;
-    program: string;
-    location: string;
+    location_id: string;
     status: ActiveStatus;
-    startDate: string;
-    endDate: string;
+    start_date: string;
+    end_date: string;
 };
 
-const locationOptions = [...adminPpsiLocationOptions];
+type PageProps = {
+    counsellors: PpsiRecord[];
+    locations: LocationOption[];
+};
+
 const staffDirectory: StaffDirectoryItem[] = adminPpsiStaffDirectory.map((item) => ({ ...item }));
-const initialRecords: PpsiRecord[] = adminPpsiInitialRecords.map((item) => ({ ...item }));
 
 const getStatusBadgeClass = (status: ActiveStatus) =>
     status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700';
@@ -62,44 +64,40 @@ const getStatusBadgeClass = (status: ActiveStatus) =>
 const normalizeType = (type: PpsiType) => (type === 'staff' ? 'STAF' : 'KAUNSELOR PELATIH');
 
 export default function AdminCounsellorPpsiPage() {
+    const { props } = usePage<PageProps & { flash?: { success?: string } }>();
+    const { counsellors, locations } = props;
+
     const { confirm, confirmDialog } = useConfirmDialog();
-    const [records, setRecords] = useState<PpsiRecord[]>(initialRecords);
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [flashMessage, setFlashMessage] = useState('');
+    const [flashMessage, setFlashMessage] = useState(props.flash?.success ?? '');
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [isSaving, setIsSaving] = useState(false);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [typeFilter, setTypeFilter] = useState<'all' | PpsiType>('all');
     const [statusFilter, setStatusFilter] = useState<'all' | ActiveStatus>('all');
 
-    const [form, setForm] = useState<PpsiForm>({
-        type: 'staff',
-        workerNo: '',
-        idNo: '',
+    const emptyForm: PpsiForm = {
+        counsellor_type: 'staff',
+        worker_no: '',
+        ppsi_no: '',
         name: '',
-        role: '',
         organization: 'UTM',
         email: '',
         phone: '',
-        supervisorName: '',
-        supervisorPhone: '',
-        program: '',
-        location: locationOptions[0],
+        location_id: locations[0]?.id ?? '',
         status: 'active',
-        startDate: '',
-        endDate: '',
-    });
+        start_date: '',
+        end_date: '',
+    };
+
+    const [form, setForm] = useState<PpsiForm>(emptyForm);
 
     const filteredRecords = useMemo(() => {
         const normalizedSearch = searchTerm.trim().toLowerCase();
 
-        return records.filter((record) => {
-            const searchableText = [
-                record.ppsiNo,
-                record.name,
-                record.organization,
-                record.location,
-                record.email,
-            ]
+        return counsellors.filter((record) => {
+            const searchableText = [record.ppsiNo, record.name, record.organization, record.location, record.email]
                 .join(' ')
                 .toLowerCase();
 
@@ -109,14 +107,14 @@ export default function AdminCounsellorPpsiPage() {
 
             return matchesSearch && matchesType && matchesStatus;
         });
-    }, [records, searchTerm, typeFilter, statusFilter]);
+    }, [counsellors, searchTerm, typeFilter, statusFilter]);
 
     const updateFormField = <K extends keyof PpsiForm>(field: K, value: PpsiForm[K]) => {
         setForm((current) => ({ ...current, [field]: value }));
     };
 
     const handleSelectStaff = (workerNo: string) => {
-        updateFormField('workerNo', workerNo);
+        updateFormField('worker_no', workerNo);
 
         const selected = staffDirectory.find((staff) => staff.workerNo === workerNo);
 
@@ -126,10 +124,8 @@ export default function AdminCounsellorPpsiPage() {
 
         setForm((current) => ({
             ...current,
-            workerNo: selected.workerNo,
-            idNo: selected.workerNo,
+            worker_no: selected.workerNo,
             name: selected.name,
-            role: selected.role,
             organization: 'UTM',
             email: selected.email,
             phone: selected.phone,
@@ -137,14 +133,14 @@ export default function AdminCounsellorPpsiPage() {
     };
 
     const handleSavePpsi = async () => {
-        if (!form.type || !form.name.trim() || !form.location || !form.startDate || !form.endDate) {
+        if (!form.counsellor_type || !form.name.trim() || !form.location_id || !form.start_date || !form.end_date) {
             setFlashMessage('Please complete required fields before saving.');
             return;
         }
 
         const approved = await confirm({
             title: 'Save Counsellor (PPsi)',
-            message: `Save ${normalizeType(form.type)} record for ${form.name}?`,
+            message: `Save ${normalizeType(form.counsellor_type)} record for ${form.name}?`,
             confirmText: 'Save',
         });
 
@@ -152,32 +148,28 @@ export default function AdminCounsellorPpsiPage() {
             return;
         }
 
-        const newRecord: PpsiRecord = {
-            id: `PPSI-${Date.now()}`,
-            ppsiNo: String(Date.now()).slice(-4),
-            type: form.type,
-            name: form.name.trim(),
-            organization: form.organization.trim() || 'UTM',
-            location: form.location,
-            status: form.status,
-            startDate: form.startDate,
-            endDate: form.endDate,
-            email: form.email.trim() || '-',
-            phone: form.phone.trim() || '-',
-        };
+        setIsSaving(true);
+        setFormErrors({});
 
-        setRecords((current) => [newRecord, ...current]);
-        setFlashMessage(`Counsellor (PPsi) ${newRecord.name} saved successfully (mock).`);
-        setIsFormOpen(false);
+        router.post('/admin/counsellor-ppsi', form, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setFlashMessage(`Counsellor (PPsi) ${form.name} saved successfully.`);
+                setIsFormOpen(false);
+                setForm(emptyForm);
+            },
+            onError: (errors) => {
+                setFormErrors(errors as Record<string, string>);
+                setFlashMessage(Object.values(errors)[0] ?? 'Please fix the errors below.');
+            },
+            onFinish: () => setIsSaving(false),
+        });
     };
 
     return (
         <>
             <Head title="Admin Counsellor (PPsi)" />
-            <AdminLayout
-                title="Counsellor (PPsi)"
-                subtitle="Manage Staff and Trainee counsellor records"
-            >
+            <AdminLayout title="Counsellor (PPsi)" subtitle="Manage Staff and Trainee counsellor records">
                 {flashMessage && (
                     <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                         {flashMessage}
@@ -197,7 +189,7 @@ export default function AdminCounsellorPpsiPage() {
                     </div>
 
                     <div className="mt-4 grid gap-3 md:grid-cols-4">
-                        <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-gray-600 md:col-span-2">
+                        <label className="space-y-1 text-xs font-semibold tracking-wide text-gray-600 uppercase md:col-span-2">
                             Search
                             <input
                                 type="text"
@@ -208,7 +200,7 @@ export default function AdminCounsellorPpsiPage() {
                             />
                         </label>
 
-                        <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                        <label className="space-y-1 text-xs font-semibold tracking-wide text-gray-600 uppercase">
                             Type
                             <select
                                 value={typeFilter}
@@ -221,18 +213,17 @@ export default function AdminCounsellorPpsiPage() {
                             </select>
                         </label>
 
-                        <label className="space-y-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                        <label className="space-y-1 text-xs font-semibold tracking-wide text-gray-600 uppercase">
                             Status
                             <select
                                 value={statusFilter}
-                                onChange={(event) =>
-                                    setStatusFilter(event.target.value as 'all' | ActiveStatus)
-                                }
+                                onChange={(event) => setStatusFilter(event.target.value as 'all' | ActiveStatus)}
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal normal-case text-gray-800 shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                             >
                                 <option value="all">All Statuses</option>
                                 <option value="active">Active</option>
                                 <option value="inactive">Inactive</option>
+                                <option value="suspended">Suspended</option>
                             </select>
                         </label>
                     </div>
@@ -245,10 +236,8 @@ export default function AdminCounsellorPpsiPage() {
                                 <label className="space-y-1 text-sm">
                                     <span className="font-medium text-gray-700">Jenis PPsi</span>
                                     <select
-                                        value={form.type}
-                                        onChange={(event) =>
-                                            updateFormField('type', event.target.value as PpsiType)
-                                        }
+                                        value={form.counsellor_type}
+                                        onChange={(event) => updateFormField('counsellor_type', event.target.value as PpsiType)}
                                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     >
                                         <option value="staff">STAF</option>
@@ -256,11 +245,11 @@ export default function AdminCounsellorPpsiPage() {
                                     </select>
                                 </label>
 
-                                {form.type === 'staff' ? (
+                                {form.counsellor_type === 'staff' ? (
                                     <label className="space-y-1 text-sm md:col-span-2">
                                         <span className="font-medium text-gray-700">No. Pekerja</span>
                                         <select
-                                            value={form.workerNo}
+                                            value={form.worker_no}
                                             onChange={(event) => handleSelectStaff(event.target.value)}
                                             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                         >
@@ -271,16 +260,18 @@ export default function AdminCounsellorPpsiPage() {
                                                 </option>
                                             ))}
                                         </select>
+                                        {formErrors.worker_no && <p className="text-xs text-red-700">{formErrors.worker_no}</p>}
                                     </label>
                                 ) : (
                                     <label className="space-y-1 text-sm md:col-span-2">
-                                        <span className="font-medium text-gray-700">No. ID</span>
+                                        <span className="font-medium text-gray-700">No. PPsi</span>
                                         <input
                                             type="text"
-                                            value={form.idNo}
-                                            onChange={(event) => updateFormField('idNo', event.target.value)}
+                                            value={form.ppsi_no}
+                                            onChange={(event) => updateFormField('ppsi_no', event.target.value)}
                                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                         />
+                                        {formErrors.ppsi_no && <p className="text-xs text-red-700">{formErrors.ppsi_no}</p>}
                                     </label>
                                 )}
 
@@ -290,16 +281,6 @@ export default function AdminCounsellorPpsiPage() {
                                         type="text"
                                         value={form.name}
                                         onChange={(event) => updateFormField('name', event.target.value)}
-                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
-                                    />
-                                </label>
-
-                                <label className="space-y-1 text-sm">
-                                    <span className="font-medium text-gray-700">Jawatan</span>
-                                    <input
-                                        type="text"
-                                        value={form.role}
-                                        onChange={(event) => updateFormField('role', event.target.value)}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     />
                                 </label>
@@ -322,6 +303,7 @@ export default function AdminCounsellorPpsiPage() {
                                         onChange={(event) => updateFormField('email', event.target.value)}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     />
+                                    {formErrors.email && <p className="text-xs text-red-700">{formErrors.email}</p>}
                                 </label>
 
                                 <label className="space-y-1 text-sm">
@@ -334,54 +316,16 @@ export default function AdminCounsellorPpsiPage() {
                                     />
                                 </label>
 
-                                {form.type === 'trainee' && (
-                                    <>
-                                        <label className="space-y-1 text-sm">
-                                            <span className="font-medium text-gray-700">Nama Penyelia</span>
-                                            <input
-                                                type="text"
-                                                value={form.supervisorName}
-                                                onChange={(event) =>
-                                                    updateFormField('supervisorName', event.target.value)
-                                                }
-                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
-                                            />
-                                        </label>
-
-                                        <label className="space-y-1 text-sm">
-                                            <span className="font-medium text-gray-700">No. Tel Penyelia</span>
-                                            <input
-                                                type="text"
-                                                value={form.supervisorPhone}
-                                                onChange={(event) =>
-                                                    updateFormField('supervisorPhone', event.target.value)
-                                                }
-                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
-                                            />
-                                        </label>
-
-                                        <label className="space-y-1 text-sm">
-                                            <span className="font-medium text-gray-700">Kursus Pengajian</span>
-                                            <input
-                                                type="text"
-                                                value={form.program}
-                                                onChange={(event) => updateFormField('program', event.target.value)}
-                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
-                                            />
-                                        </label>
-                                    </>
-                                )}
-
                                 <label className="space-y-1 text-sm">
                                     <span className="font-medium text-gray-700">Lokasi</span>
                                     <select
-                                        value={form.location}
-                                        onChange={(event) => updateFormField('location', event.target.value)}
+                                        value={form.location_id}
+                                        onChange={(event) => updateFormField('location_id', event.target.value)}
                                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     >
-                                        {locationOptions.map((location) => (
-                                            <option key={location} value={location}>
-                                                {location}
+                                        {locations.map((location) => (
+                                            <option key={location.id} value={location.id}>
+                                                {location.name}
                                             </option>
                                         ))}
                                     </select>
@@ -391,13 +335,12 @@ export default function AdminCounsellorPpsiPage() {
                                     <span className="font-medium text-gray-700">Status Aktif</span>
                                     <select
                                         value={form.status}
-                                        onChange={(event) =>
-                                            updateFormField('status', event.target.value as ActiveStatus)
-                                        }
+                                        onChange={(event) => updateFormField('status', event.target.value as ActiveStatus)}
                                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     >
                                         <option value="active">AKTIF</option>
                                         <option value="inactive">TIDAK AKTIF</option>
+                                        <option value="suspended">DIGANTUNG</option>
                                     </select>
                                 </label>
 
@@ -405,8 +348,8 @@ export default function AdminCounsellorPpsiPage() {
                                     <span className="font-medium text-gray-700">Tarikh Mula</span>
                                     <input
                                         type="date"
-                                        value={form.startDate}
-                                        onChange={(event) => updateFormField('startDate', event.target.value)}
+                                        value={form.start_date}
+                                        onChange={(event) => updateFormField('start_date', event.target.value)}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     />
                                 </label>
@@ -415,10 +358,11 @@ export default function AdminCounsellorPpsiPage() {
                                     <span className="font-medium text-gray-700">Tarikh Tamat</span>
                                     <input
                                         type="date"
-                                        value={form.endDate}
-                                        onChange={(event) => updateFormField('endDate', event.target.value)}
+                                        value={form.end_date}
+                                        onChange={(event) => updateFormField('end_date', event.target.value)}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-red-800 focus:ring-2 focus:ring-red-100"
                                     />
+                                    {formErrors.end_date && <p className="text-xs text-red-700">{formErrors.end_date}</p>}
                                 </label>
                             </div>
 
@@ -426,9 +370,10 @@ export default function AdminCounsellorPpsiPage() {
                                 <button
                                     type="button"
                                     onClick={handleSavePpsi}
-                                    className="rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-900"
+                                    disabled={isSaving}
+                                    className="rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    Simpan
+                                    {isSaving ? 'Menyimpan...' : 'Simpan'}
                                 </button>
                                 <button
                                     type="button"
@@ -456,7 +401,7 @@ export default function AdminCounsellorPpsiPage() {
                             <tbody className="divide-y divide-gray-100 bg-white">
                                 {filteredRecords.map((record) => (
                                     <tr key={record.id}>
-                                        <td className="px-3 py-2 text-gray-700">{record.ppsiNo}</td>
+                                        <td className="px-3 py-2 text-gray-700">{record.ppsiNo ?? record.workerNo ?? '-'}</td>
                                         <td className="px-3 py-2 text-gray-700">{normalizeType(record.type)}</td>
                                         <td className="px-3 py-2 text-gray-900">{record.name}</td>
                                         <td className="px-3 py-2 text-gray-700">{record.location}</td>
@@ -468,7 +413,7 @@ export default function AdminCounsellorPpsiPage() {
                                             </span>
                                         </td>
                                         <td className="px-3 py-2 text-gray-700">
-                                            {record.startDate} - {record.endDate}
+                                            {record.startDate ?? '-'} - {record.endDate ?? '-'}
                                         </td>
                                     </tr>
                                 ))}

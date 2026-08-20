@@ -13,6 +13,8 @@
 .env
 .env.backup
 .env.production
+.env.supabase
+.env.local
 .phpactor.json
 .phpunit.result.cache
 Homestead.json
@@ -25,3 +27,27 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+/.claude/settings.local.json
+
+# OS cruft
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Editor swap/backup files
+*.swp
+*.swo
+*~
+
+# Coverage/test output
+/coverage
+.nyc_output
+
+# Stray logs anywhere in the repo (storage/logs has its own .gitignore
+# already; this catches ad-hoc *.log files dropped elsewhere during dev)
+*.log

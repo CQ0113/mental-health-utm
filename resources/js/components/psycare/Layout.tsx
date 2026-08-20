@@ -1,9 +1,14 @@
-import { Link, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { setPsycareLanguage, usePsycareLanguage } from '@/lib/psycare-language';
 import {
-    setPsycareLanguage,
-    usePsycareLanguage,
-} from '@/lib/psycare-language';
+    ensurePsycareTermsAcceptanceRecord,
+    getMockCurrentPsycareClient,
+    hasPsycareTermsBeenAccepted,
+    getPsycareTermsAcceptanceRecord,
+    savePsycareTermsAcceptance,
+    PSYCARE_TERMS_ACCEPTANCE_UPDATED_EVENT,
+} from '@/lib/psycare-declaration';
 import FloatingChatbot from './FloatingChatbot';
 
 const EMOTION_RECORDS_STORAGE_KEY = 'psycare.emotion.records';
@@ -19,7 +24,6 @@ type NavigationItem = {
 };
 
 const navigationItems = [
-    
     {
         labelMs: 'Papan Pemuka',
         labelEn: 'Dashboard',
@@ -61,13 +65,19 @@ export default function Layout({ children }: LayoutProps) {
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [actionMessage, setActionMessage] = useState('');
     const [isEmotionPendingToday, setIsEmotionPendingToday] = useState(false);
+    const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+    const [isTermsConfirmed, setIsTermsConfirmed] = useState(false);
+    const [isTermsAccepted, setIsTermsAccepted] = useState(false);
     const language = usePsycareLanguage();
     const { url } = usePage();
+    const currentClient = getMockCurrentPsycareClient();
 
     useEffect(() => {
         const evaluateTodayEmotionStatus = () => {
             const todayIso = new Date().toISOString().slice(0, 10);
-            const storedEmotionRecords = localStorage.getItem(EMOTION_RECORDS_STORAGE_KEY);
+            const storedEmotionRecords = localStorage.getItem(
+                EMOTION_RECORDS_STORAGE_KEY,
+            );
 
             if (!storedEmotionRecords) {
                 setIsEmotionPendingToday(true);
@@ -75,7 +85,9 @@ export default function Layout({ children }: LayoutProps) {
             }
 
             try {
-                const parsedEmotionRecords = JSON.parse(storedEmotionRecords) as Array<{ date: string }>;
+                const parsedEmotionRecords = JSON.parse(
+                    storedEmotionRecords,
+                ) as Array<{ date: string }>;
                 const hasTodayRecord = parsedEmotionRecords.some(
                     (record) => record.date === todayIso,
                 );
@@ -94,13 +106,68 @@ export default function Layout({ children }: LayoutProps) {
 
         evaluateTodayEmotionStatus();
         window.addEventListener('storage', handleStorageUpdate);
-        window.addEventListener('psycare:emotion-records-updated', evaluateTodayEmotionStatus);
+        window.addEventListener(
+            'psycare:emotion-records-updated',
+            evaluateTodayEmotionStatus,
+        );
 
         return () => {
             window.removeEventListener('storage', handleStorageUpdate);
-            window.removeEventListener('psycare:emotion-records-updated', evaluateTodayEmotionStatus);
+            window.removeEventListener(
+                'psycare:emotion-records-updated',
+                evaluateTodayEmotionStatus,
+            );
         };
     }, []);
+
+    useEffect(() => {
+        if (!currentClient) {
+            setIsTermsAccepted(true);
+            return;
+        }
+
+        ensurePsycareTermsAcceptanceRecord(
+            currentClient.id,
+            currentClient.fullName,
+        );
+
+        const refreshTermsStatus = () => {
+            setIsTermsAccepted(hasPsycareTermsBeenAccepted(currentClient.id));
+        };
+
+        refreshTermsStatus();
+        window.addEventListener('storage', refreshTermsStatus);
+        window.addEventListener(
+            PSYCARE_TERMS_ACCEPTANCE_UPDATED_EVENT,
+            refreshTermsStatus,
+        );
+
+        return () => {
+            window.removeEventListener('storage', refreshTermsStatus);
+            window.removeEventListener(
+                PSYCARE_TERMS_ACCEPTANCE_UPDATED_EVENT,
+                refreshTermsStatus,
+            );
+        };
+    }, [currentClient]);
+
+    useEffect(() => {
+        setIsTermsModalOpen(Boolean(currentClient) && !isTermsAccepted);
+    }, [currentClient, isTermsAccepted]);
+
+    useEffect(() => {
+        if (!isTermsModalOpen) {
+            document.body.style.overflow = '';
+            return;
+        }
+
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [isTermsModalOpen]);
 
     const copy = useMemo(() => {
         if (language === 'en') {
@@ -123,6 +190,25 @@ export default function Layout({ children }: LayoutProps) {
                     'Demo settings opened. Backend integration can be connected next.',
                 logoutMessage:
                     'Demo logout successful. Real session logout requires backend auth integration.',
+                termsTitle: 'Terms and Conditions / Terma dan Syarat',
+                termsIntro:
+                    'Before using PsyCare 2.0, please review and accept the system terms below.',
+                termsIntroMs:
+                    'Sebelum menggunakan PsyCare 2.0, sila semak dan terima terma sistem di bawah.',
+                termsLabel:
+                    'I have read and agree to the terms and conditions of using PsyCare 2.0.',
+                termsLabelMs:
+                    'Saya telah membaca dan bersetuju dengan terma dan syarat penggunaan PsyCare 2.0.',
+                termsSummary:
+                    'Your terms acceptance will be saved for this mock client so the form will not appear again unless the record is cleared.',
+                termsSummaryMs:
+                    'Persetujuan terma akan disimpan untuk klien mock ini supaya borang ini tidak akan muncul lagi kecuali rekod dipadamkan.',
+                agreeButton: 'Agree and Continue',
+                agreeButtonMs: 'Setuju dan Teruskan',
+                clientLabel: 'Current Client',
+                termsAcceptedAtLabel: 'Accepted At',
+                termsStored: 'Accepted for current terms version',
+                termsPending: 'Not yet accepted for current terms version',
             };
         }
 
@@ -145,6 +231,25 @@ export default function Layout({ children }: LayoutProps) {
                 'Tetapan demo dibuka. Fungsi backend akan dihubungkan kemudian.',
             logoutMessage:
                 'Log keluar demo berjaya. Sesi sebenar memerlukan integrasi auth backend.',
+            termsTitle: 'Terma dan Syarat / Terms and Conditions',
+            termsIntro:
+                'Sebelum menggunakan PsyCare 2.0, sila semak dan terima terma sistem di bawah.',
+            termsIntroMs:
+                'Before using PsyCare 2.0, please review and accept the system terms below.',
+            termsLabel:
+                'Saya telah membaca dan bersetuju dengan terma dan syarat penggunaan PsyCare 2.0.',
+            termsLabelMs:
+                'I have read and agree to the terms and conditions of using PsyCare 2.0.',
+            termsSummary:
+                'Persetujuan terma anda akan disimpan untuk klien mock ini supaya borang ini tidak akan muncul lagi kecuali rekod dipadamkan.',
+            termsSummaryMs:
+                'Your terms acceptance will be saved for this mock client so the form will not appear again unless the record is cleared.',
+            agreeButton: 'Setuju dan Teruskan',
+            agreeButtonMs: 'Agree and Continue',
+            clientLabel: 'Klien Semasa',
+            termsAcceptedAtLabel: 'Masa Terima',
+            termsStored: 'Diterima untuk versi terma semasa',
+            termsPending: 'Belum diterima untuk versi terma semasa',
         };
     }, [language]);
 
@@ -158,9 +263,28 @@ export default function Layout({ children }: LayoutProps) {
     };
 
     const handleLogoutClick = () => {
-        setActionMessage(copy.logoutMessage);
         setIsProfileOpen(false);
+        router.post('/logout');
     };
+
+    const handleTermsAccept = () => {
+        if (!currentClient || !isTermsConfirmed) {
+            return;
+        }
+
+        savePsycareTermsAcceptance(currentClient.id, currentClient.fullName);
+        setActionMessage(
+            language === 'en'
+                ? 'Terms accepted. You can now use PsyCare 2.0.'
+                : 'Terma diterima. Anda kini boleh menggunakan PsyCare 2.0.',
+        );
+        setIsTermsConfirmed(false);
+        setIsTermsModalOpen(false);
+    };
+
+    const termsAcceptanceRecord = currentClient
+        ? getPsycareTermsAcceptanceRecord(currentClient.id)
+        : null;
 
     return (
         <div className="min-h-screen bg-gray-50 text-gray-800">
@@ -169,8 +293,12 @@ export default function Layout({ children }: LayoutProps) {
                     href="/psycare/dashboard"
                     className="block border-b border-red-700 px-6 py-5 hover:bg-red-700/40"
                 >
-                    <p className="text-xs tracking-wide text-red-100">PsyCare 2.0</p>
-                    <h1 className="text-lg font-semibold">Counselling Portal</h1>
+                    <p className="text-xs tracking-wide text-red-100">
+                        PsyCare 2.0
+                    </p>
+                    <h1 className="text-lg font-semibold">
+                        Counselling Portal
+                    </h1>
                 </Link>
 
                 <nav className="flex h-[calc(100%-89px)] flex-col p-4">
@@ -185,29 +313,34 @@ export default function Layout({ children }: LayoutProps) {
                                             : 'hover:bg-red-700'
                                     }`}
                                 >
-                                    <span>{language === 'en' ? item.labelEn : item.labelMs}</span>
-                                    {item.href === '/psycare/dashboard' && isEmotionPendingToday && (
-                                        <span
-                                            aria-label={
-                                                language === 'en'
-                                                    ? 'Emotion not recorded today'
-                                                    : 'Emosi belum direkod hari ini'
-                                            }
-                                            title={
-                                                language === 'en'
-                                                    ? 'Emotion not recorded today'
-                                                    : 'Emosi belum direkod hari ini'
-                                            }
-                                            className="ml-3 inline-flex h-2.5 w-2.5 rounded-full bg-red-300"
-                                        />
-                                    )}
+                                    <span>
+                                        {language === 'en'
+                                            ? item.labelEn
+                                            : item.labelMs}
+                                    </span>
+                                    {item.href === '/psycare/dashboard' &&
+                                        isEmotionPendingToday && (
+                                            <span
+                                                aria-label={
+                                                    language === 'en'
+                                                        ? 'Emotion not recorded today'
+                                                        : 'Emosi belum direkod hari ini'
+                                                }
+                                                title={
+                                                    language === 'en'
+                                                        ? 'Emotion not recorded today'
+                                                        : 'Emosi belum direkod hari ini'
+                                                }
+                                                className="ml-3 inline-flex h-2.5 w-2.5 rounded-full bg-red-300"
+                                            />
+                                        )}
                                 </Link>
                             </li>
                         ))}
                     </ul>
 
                     <div className="mt-auto rounded-lg border border-red-700 bg-red-900/30 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-red-100">
+                        <p className="text-xs font-semibold tracking-wide text-red-100 uppercase">
                             {copy.languageLabel}
                         </p>
                         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -238,31 +371,16 @@ export default function Layout({ children }: LayoutProps) {
                 </nav>
             </aside>
 
-            <div className="pl-72">
+            <div
+                className={`pl-72 ${isTermsModalOpen ? 'pointer-events-none blur-[1px] select-none' : ''}`}
+                aria-hidden={isTermsModalOpen}
+            >
                 <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
                     <div>
-                        <h2 className="text-lg font-semibold text-gray-900">{copy.pageTitle}</h2>
+                        <h2 className="text-lg font-semibold text-gray-900">
+                            {copy.pageTitle}
+                        </h2>
                         <p className="text-sm text-gray-500">{copy.welcome}</p>
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <Link
-                                href="/psycare/dashboard"
-                                className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-50"
-                            >
-                                Client Portal
-                            </Link>
-                            <Link
-                                href="/admin/dashboard"
-                                className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-50"
-                            >
-                                Admin Portal
-                            </Link>
-                            <Link
-                                href="/counsellor/dashboard"
-                                className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-50"
-                            >
-                                Counsellor Portal
-                            </Link>
-                        </div>
                     </div>
 
                     <div className="relative flex items-center gap-3">
@@ -276,14 +394,18 @@ export default function Layout({ children }: LayoutProps) {
 
                         <button
                             type="button"
-                            onClick={() => setIsProfileOpen((previousState) => !previousState)}
+                            onClick={() =>
+                                setIsProfileOpen(
+                                    (previousState) => !previousState,
+                                )
+                            }
                             className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
                         >
                             {copy.profileButton}
                         </button>
 
                         {isProfileOpen && (
-                            <div className="absolute right-0 top-12 w-44 rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+                            <div className="absolute top-12 right-0 w-44 rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
                                 <Link
                                     href="/psycare/perkhidmatan"
                                     onClick={() => setIsProfileOpen(false)}
@@ -319,6 +441,112 @@ export default function Layout({ children }: LayoutProps) {
                     {children}
                 </main>
             </div>
+
+            {isTermsModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+                    <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+                        <div className="bg-gray-900 px-6 py-4 text-white">
+                            <p className="text-xs font-semibold tracking-[0.2em] text-yellow-300 uppercase">
+                                PsyCare 2.0
+                            </p>
+                            <h2 className="mt-1 text-2xl font-semibold">
+                                {copy.termsTitle}
+                            </h2>
+                            <p className="mt-2 text-sm text-gray-300">
+                                {copy.termsIntro}
+                            </p>
+                            <p className="text-sm text-gray-300">
+                                {copy.termsIntroMs}
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 p-6">
+                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div>
+                                        <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                                            {copy.clientLabel}
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-gray-900">
+                                            {currentClient?.fullName ?? '-'}
+                                        </p>
+                                        <p className="text-sm text-gray-600">
+                                            {currentClient?.nationalId ?? '-'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+                                            {copy.termsAcceptedAtLabel}
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-gray-900">
+                                            {termsAcceptanceRecord?.acceptedAt
+                                                ? new Date(
+                                                      termsAcceptanceRecord.acceptedAt,
+                                                  ).toLocaleString()
+                                                : '-'}
+                                        </p>
+                                        <p className="text-sm text-gray-600">
+                                            {isTermsAccepted
+                                                ? copy.termsStored
+                                                : copy.termsPending}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700 shadow-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={isTermsConfirmed}
+                                    onChange={() =>
+                                        setIsTermsConfirmed(
+                                            (currentState) => !currentState,
+                                        )
+                                    }
+                                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-red-800 focus:ring-red-200"
+                                />
+                                <span>
+                                    <span className="block font-semibold text-gray-900">
+                                        {copy.termsLabel}
+                                    </span>
+                                    <span className="block text-gray-600">
+                                        {copy.termsLabelMs}
+                                    </span>
+                                </span>
+                            </label>
+
+                            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-900">
+                                <p className="font-semibold">
+                                    {copy.termsSummary}
+                                </p>
+                                <p className="mt-1">{copy.termsSummaryMs}</p>
+                            </div>
+
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsTermsConfirmed(false);
+                                    }}
+                                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                >
+                                    {language === 'en'
+                                        ? 'Reset'
+                                        : 'Tetapkan Semula'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleTermsAccept}
+                                    disabled={!isTermsConfirmed}
+                                    className="rounded-lg bg-red-800 px-5 py-2 text-sm font-semibold text-white hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {copy.agreeButton}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <FloatingChatbot />
         </div>

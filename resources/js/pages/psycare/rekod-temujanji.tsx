@@ -1,12 +1,22 @@
 import { Head, router } from '@inertiajs/react';
 import { Layout } from '@/components/psycare';
-import type {AppointmentRecord} from '@/lib/psycare-appointment-records';
-import {
-    pastAppointments,
-} from '@/lib/psycare-appointment-records';
 import { usePsycareLanguage } from '@/lib/psycare-language';
 
-export default function PsyCareAppointmentHistoryPage() {
+type AppointmentRecord = {
+    id: string;
+    referenceNo: string;
+    date: string | null;
+    slotLabel: string;
+    counselorName: string;
+    sessionType: 'physical' | 'online';
+    status: string;
+};
+
+type PageProps = {
+    appointments: AppointmentRecord[];
+};
+
+export default function PsyCareAppointmentHistoryPage({ appointments }: PageProps) {
     const language = usePsycareLanguage();
 
     const copy =
@@ -14,8 +24,7 @@ export default function PsyCareAppointmentHistoryPage() {
             ? {
                   title: 'Appointment Records',
                   subtitle: 'Past Appointments',
-                  description:
-                      'Select any previous appointment to continue as a follow-up request.',
+                  description: 'Select any previous appointment to continue as a follow-up request.',
                   referenceNo: 'Reference No',
                   date: 'Date',
                   slot: 'Slot',
@@ -24,17 +33,15 @@ export default function PsyCareAppointmentHistoryPage() {
                   status: 'Status',
                   action: 'Action',
                   followUp: 'Follow Up',
-                                    open: 'Open',
-                                    closed: 'Closed',
-                                    unavailable: 'Unavailable',
+                  unavailable: 'Unavailable',
                   online: 'Online',
                   physical: 'Physical',
+                  empty: 'No appointment records yet.',
               }
             : {
                   title: 'Rekod Temujanji',
                   subtitle: 'Sejarah Temujanji',
-                  description:
-                      'Pilih mana-mana temujanji terdahulu untuk diteruskan sebagai permohonan susulan.',
+                  description: 'Pilih mana-mana temujanji terdahulu untuk diteruskan sebagai permohonan susulan.',
                   referenceNo: 'No Rujukan',
                   date: 'Tarikh',
                   slot: 'Slot',
@@ -43,19 +50,30 @@ export default function PsyCareAppointmentHistoryPage() {
                   status: 'Status',
                   action: 'Tindakan',
                   followUp: 'Susulan',
-                  open: 'Buka',
-                  closed: 'Tutup',
                   unavailable: 'Tidak Tersedia',
                   online: 'Online',
                   physical: 'Fizikal',
+                  empty: 'Belum ada rekod temujanji.',
               };
 
+    const statusLabels: Record<string, string> = {
+        draft: 'Draft',
+        pending: 'Pending',
+        needs_review: 'Needs Review',
+        counsellor_reviewing: 'Counsellor Reviewing',
+        approved: 'Approved',
+        on_going: 'On Going',
+        complete: 'Complete',
+        completed: 'Completed',
+        follow_up: copy.followUp,
+        closed: 'Closed',
+    };
 
-    const handleFollowUp = (referenceNo: string, status: AppointmentRecord['status']) => {
-        if (status !== 'follow-up') {
+    const handleFollowUp = (record: AppointmentRecord) => {
+        if (record.status !== 'follow_up') {
             return;
         }
-        router.visit(`/psycare/permohonan?mode=followup&reference=${encodeURIComponent(referenceNo)}`);
+        router.visit(`/psycare/permohonan?mode=followup&previous=${encodeURIComponent(record.id)}`);
     };
 
     return (
@@ -63,12 +81,8 @@ export default function PsyCareAppointmentHistoryPage() {
             <Head title={copy.title} />
             <Layout>
                 <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-red-800">
-                        {copy.title}
-                    </p>
-                    <h2 className="mt-2 text-lg font-semibold text-gray-900">
-                        {copy.subtitle}
-                    </h2>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-red-800">{copy.title}</p>
+                    <h2 className="mt-2 text-lg font-semibold text-gray-900">{copy.subtitle}</h2>
                     <p className="mt-1 text-sm text-gray-600">{copy.description}</p>
 
                     <div className="mt-5 overflow-x-auto rounded-lg border border-gray-200">
@@ -85,28 +99,31 @@ export default function PsyCareAppointmentHistoryPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 bg-white">
-                                {pastAppointments.map((record) => (
-                                    <tr key={record.referenceNo}>
+                                {appointments.length === 0 && (
+                                    <tr>
+                                        <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">
+                                            {copy.empty}
+                                        </td>
+                                    </tr>
+                                )}
+                                {appointments.map((record) => (
+                                    <tr key={record.id}>
                                         <td className="px-4 py-3 font-medium text-gray-900">{record.referenceNo}</td>
-                                        <td className="px-4 py-3 text-gray-700">{record.date}</td>
-                                        <td className="px-4 py-3 text-gray-700">{record.slot}</td>
-                                        <td className="px-4 py-3 text-gray-700">{record.counselor}</td>
+                                        <td className="px-4 py-3 text-gray-700">{record.date ?? '-'}</td>
+                                        <td className="px-4 py-3 text-gray-700">{record.slotLabel}</td>
+                                        <td className="px-4 py-3 text-gray-700">{record.counselorName}</td>
                                         <td className="px-4 py-3 text-gray-700">
-                                            {record.sessionType === 'online'
-                                                ? copy.online
-                                                : copy.physical}
+                                            {record.sessionType === 'online' ? copy.online : copy.physical}
                                         </td>
-                                        <td className="px-4 py-3 text-gray-700">
-                                            {record.status === 'follow-up' ? copy.followUp : record.status === 'open' ? copy.open : copy.closed}
-                                        </td>
+                                        <td className="px-4 py-3 text-gray-700">{statusLabels[record.status] ?? record.status}</td>
                                         <td className="px-4 py-3">
                                             <button
                                                 type="button"
-                                                onClick={() => handleFollowUp(record.referenceNo, record.status)}
-                                                disabled={record.status !== 'follow-up'}
+                                                onClick={() => handleFollowUp(record)}
+                                                disabled={record.status !== 'follow_up'}
                                                 className="rounded-lg bg-red-800 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-red-900 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500"
                                             >
-                                                {record.status === 'follow-up' ? copy.followUp : copy.unavailable}
+                                                {record.status === 'follow_up' ? copy.followUp : copy.unavailable}
                                             </button>
                                         </td>
                                     </tr>

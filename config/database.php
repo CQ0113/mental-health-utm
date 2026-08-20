@@ -97,6 +97,13 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Supabase's pooler is remote, and every fresh connection pays a
+            // real TCP+TLS handshake. Reusing the connection across requests
+            // within the same long-running `php artisan serve` process cuts
+            // that cost for everything after the first request.
+            'options' => [
+                \PDO::ATTR_PERSISTENT => env('DB_PERSISTENT', true),
+            ],
         ],
 
         'sqlsrv' => [

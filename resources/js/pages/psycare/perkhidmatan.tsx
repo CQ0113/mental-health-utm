@@ -1,12 +1,17 @@
 import { Head } from '@inertiajs/react';
 import { ClientProfileForm, Layout } from '@/components/psycare';
+import type { MyClientProfile } from '@/components/psycare/ClientProfileForm';
 
-export default function PsyCarePerkhidmatanPage() {
+type PageProps = {
+    myClientProfile: MyClientProfile | null;
+};
+
+export default function PsyCarePerkhidmatanPage({ myClientProfile }: PageProps) {
     return (
         <>
             <Head title="Perkhidmatan" />
             <Layout>
-                <ClientProfileForm />
+                <ClientProfileForm myClientProfile={myClientProfile} />
             </Layout>
         </>
     );
