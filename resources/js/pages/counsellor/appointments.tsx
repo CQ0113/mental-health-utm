@@ -61,6 +61,22 @@ const getStatusBadgeClass = (status: AppointmentStatusValue) => {
     return 'bg-gray-200 text-gray-700';
 };
 
+const declarationStatusLabels: Record<string, string> = {
+    draft: 'DRAFT',
+    submitted: 'SUBMITTED',
+    pending_verification: 'PENDING VERIFICATION',
+    verified: 'VERIFIED',
+    correction_required: 'CORRECTION REQUIRED',
+    rejected: 'REJECTED',
+};
+
+const declarationStatusBadgeClass = (status: string) => {
+    if (status === 'verified') return 'bg-emerald-100 text-emerald-800';
+    if (status === 'correction_required' || status === 'rejected') return 'bg-amber-100 text-amber-800';
+    if (status === 'submitted' || status === 'pending_verification') return 'bg-sky-100 text-sky-800';
+    return 'bg-gray-200 text-gray-700';
+};
+
 // Real backend shape (Counsellor\AppointmentController@present), normalized
 // into this page's existing `date`/`slot`/`counselor` field names. AS07 is
 // the only part of this page wired to the database (queue list + the
@@ -87,6 +103,31 @@ type BackendAppointment = {
     counsellorReviewNote: string | null;
     counsellorReviewedAt: string | null;
     meetingLink: string | null;
+    declaration: ClientDeclaration | null;
+};
+
+/**
+ * DC03 — the client's profile-level Client Information Declaration, shown
+ * here because a counsellor has no Client Information page of their own.
+ * Null until the client submits one.
+ */
+type DeclarationStatus =
+    | 'draft'
+    | 'submitted'
+    | 'pending_verification'
+    | 'verified'
+    | 'correction_required'
+    | 'rejected';
+
+type ClientDeclaration = {
+    id: string;
+    declarationText: string;
+    isChecked: boolean;
+    status: DeclarationStatus;
+    submittedAt: string | null;
+    verifiedAt: string | null;
+    verifiedByName: string | null;
+    correctionNote: string | null;
 };
 
 type CounsellorAppointmentItem = {
@@ -110,6 +151,7 @@ type CounsellorAppointmentItem = {
     counsellorReviewNote: string | null;
     counsellorReviewedAt: string | null;
     meetingLink: string | null;
+    declaration: ClientDeclaration | null;
 };
 
 const normalizeAppointment = (appointment: BackendAppointment): CounsellorAppointmentItem => ({
@@ -133,6 +175,7 @@ const normalizeAppointment = (appointment: BackendAppointment): CounsellorAppoin
     counsellorReviewNote: appointment.counsellorReviewNote,
     counsellorReviewedAt: appointment.counsellorReviewedAt,
     meetingLink: appointment.meetingLink,
+    declaration: appointment.declaration,
 });
 
 type AppointmentCreateForm = {
@@ -275,6 +318,9 @@ export default function CounsellorAppointmentsPage({ appointments: serverAppoint
     const [selectedSlotId, setSelectedSlotId] = useState('');
     const [flashMessage, setFlashMessage] = useState('');
     const [isReviewing, setIsReviewing] = useState(false);
+    // DC03 — correction note for the declaration shown in the review modal.
+    const [declarationNote, setDeclarationNote] = useState('');
+    const [isVerifyingDeclaration, setIsVerifyingDeclaration] = useState(false);
     const [attendanceByRef, setAttendanceByRef] = useState<Record<string, AttendanceSession>>(() =>
         toAttendanceMap(serverAppointments.map(normalizeAppointment)),
     );
@@ -459,6 +505,7 @@ export default function CounsellorAppointmentsPage({ appointments: serverAppoint
             counsellorReviewNote: null,
             counsellorReviewedAt: null,
             meetingLink: null,
+            declaration: null,
         };
 
         setAppointments((current) => [newAppointment, ...current]);
@@ -566,6 +613,53 @@ export default function CounsellorAppointmentsPage({ appointments: serverAppoint
                     setFlashMessage(Object.values(errors)[0] ?? 'Could not approve this appointment.');
                 },
                 onFinish: () => setIsReviewing(false),
+            },
+        );
+    };
+
+    // DC03 AF1 — verify the client's declaration from the appointment under
+    // review. Guarded server-side as well (EF1/EF2).
+    const handleVerifyDeclaration = (declarationId: string) => {
+        if (isVerifyingDeclaration) return;
+
+        setIsVerifyingDeclaration(true);
+
+        router.patch(
+            `/counsellor/declarations/${declarationId}/verify`,
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => setFlashMessage('Client declaration verified.'),
+                onError: (errors) =>
+                    setFlashMessage(Object.values(errors)[0] ?? 'Could not verify this declaration.'),
+                onFinish: () => setIsVerifyingDeclaration(false),
+            },
+        );
+    };
+
+    // DC03 AF2 — send it back with a reason the client can act on.
+    const handleRequestDeclarationCorrection = (declarationId: string) => {
+        if (isVerifyingDeclaration) return;
+
+        if (!declarationNote.trim()) {
+            setFlashMessage('Please state what the client needs to correct.');
+            return;
+        }
+
+        setIsVerifyingDeclaration(true);
+
+        router.patch(
+            `/counsellor/declarations/${declarationId}/correction`,
+            { note: declarationNote.trim() },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setDeclarationNote('');
+                    setFlashMessage('Correction requested. The client can resubmit.');
+                },
+                onError: (errors) =>
+                    setFlashMessage(Object.values(errors)[0] ?? 'Could not request a correction.'),
+                onFinish: () => setIsVerifyingDeclaration(false),
             },
         );
     };
@@ -1322,6 +1416,93 @@ export default function CounsellorAppointmentsPage({ appointments: serverAppoint
                                     <p className="text-sm font-semibold text-gray-900">{viewingAppointment.attendedBefore ? 'YA' : 'TIDAK'}</p>
                                 </div>
                             </div>
+                        </div>
+
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h4 className="text-sm font-semibold text-gray-800">
+                                    Client Information Declaration
+                                </h4>
+                                {viewingAppointment.declaration && (
+                                    <span
+                                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${declarationStatusBadgeClass(viewingAppointment.declaration.status)}`}
+                                    >
+                                        {declarationStatusLabels[viewingAppointment.declaration.status]}
+                                    </span>
+                                )}
+                            </div>
+
+                            {!viewingAppointment.declaration ? (
+                                <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white px-3 py-4 text-center text-sm text-gray-500">
+                                    This client has not submitted their information declaration yet.
+                                </p>
+                            ) : (
+                                <div className="mt-3 space-y-3">
+                                    <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                        <p className="text-sm text-gray-800">
+                                            {viewingAppointment.declaration.declarationText}
+                                        </p>
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            Submitted: {viewingAppointment.declaration.submittedAt ?? '-'}
+                                            {viewingAppointment.declaration.verifiedByName
+                                                ? ` • Verified by ${viewingAppointment.declaration.verifiedByName} on ${viewingAppointment.declaration.verifiedAt ?? '-'}`
+                                                : ''}
+                                        </p>
+                                    </div>
+
+                                    {viewingAppointment.declaration.correctionNote && (
+                                        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                            <p className="font-semibold">Correction note</p>
+                                            <p className="mt-1">{viewingAppointment.declaration.correctionNote}</p>
+                                        </div>
+                                    )}
+
+                                    {viewingAppointment.declaration.status === 'verified' ? (
+                                        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-800">
+                                            This declaration has already been verified.
+                                        </p>
+                                    ) : (
+                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                            <label className="block space-y-1 text-sm">
+                                                <span className="font-medium text-gray-700">
+                                                    Correction note (required to request a correction)
+                                                </span>
+                                                <textarea
+                                                    value={declarationNote}
+                                                    onChange={(event) => setDeclarationNote(event.target.value)}
+                                                    rows={2}
+                                                    placeholder="What does the client need to correct?"
+                                                    className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100"
+                                                />
+                                            </label>
+                                            <div className="mt-2 flex flex-wrap justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={isVerifyingDeclaration}
+                                                    onClick={() =>
+                                                        handleRequestDeclarationCorrection(
+                                                            viewingAppointment.declaration!.id,
+                                                        )
+                                                    }
+                                                    className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                                                >
+                                                    Request Correction
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={isVerifyingDeclaration}
+                                                    onClick={() =>
+                                                        handleVerifyDeclaration(viewingAppointment.declaration!.id)
+                                                    }
+                                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                >
+                                                    Verify Declaration
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3">

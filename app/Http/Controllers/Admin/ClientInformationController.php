@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\AccountStatus;
 use App\Enums\AppointmentStatus;
 use App\Enums\AppointmentType;
 use App\Enums\SessionType;
@@ -12,6 +13,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\Counsellor;
 use App\Models\CounsellingLocation;
+use App\Services\DeclarationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -19,6 +21,8 @@ use Inertia\Response;
 
 class ClientInformationController extends Controller
 {
+    public function __construct(private readonly DeclarationService $declarations) {}
+
     /**
      * UM02 Find Client Profile / UM03 Manage User Profile (Admin) — the
      * admin "Client Information" page is Client + Appointment (intake case)
@@ -26,14 +30,25 @@ class ClientInformationController extends Controller
      * application type, counsellor, appointment need...) which are really
      * Appointment attributes, not Client ones. Only the "maklumat-klien"
      * list/form and "maklumat-peribadi" detail tab are wired to real data
-     * in this phase — study/marriage/health/confirmation/session/screening/
-     * attachment tabs stay on their existing mock content (separate module
-     * phases, or fields with no schema backing at all).
+     * in this phase — study/marriage/health/session/screening/attachment
+     * tabs stay on their existing mock content (separate module phases, or
+     * fields with no schema backing at all). The Pengesahan/Confirmation
+     * tab became real in Phase 3 (DC03 Verify Declaration).
      */
     public function index(): Response
     {
         return Inertia::render('admin/client-information', [
-            'records' => Appointment::with('client', 'location', 'counsellor')
+            'records' => Appointment::with([
+                'location',
+                'counsellor',
+                'client.user',
+                // Profile-level declarations only (appointment_id null) —
+                // eager-loaded so the list doesn't fire one query per row.
+                'client.declarations' => fn ($query) => $query
+                    ->whereNull('appointment_id')
+                    ->with('verifiedBy')
+                    ->latest('created_at'),
+            ])
                 ->orderByDesc('created_at')
                 ->get()
                 ->map(fn (Appointment $appointment) => $this->present($appointment)),
@@ -119,6 +134,14 @@ class ClientInformationController extends Controller
             'counselorName' => $appointment->counsellor?->name ?? '-',
             'appointmentNeed' => $appointment->appointment_need,
             'attendedBefore' => $appointment->attended_before,
+            // `clients` has no status column of its own (Phase 1), so the
+            // admin list shows the linked login account's state — anything
+            // other than an active account reads as inactive here. Without
+            // this the page crashed: the UI calls `record.status
+            // .toUpperCase()` and the key was simply missing.
+            'status' => $client?->user?->status === AccountStatus::Active || $client?->user === null
+                ? 'active'
+                : 'inactive',
             'clientType' => $client?->client_type->value,
             'clientName' => $client?->full_name,
             'faculty' => $client?->faculty,
@@ -128,6 +151,10 @@ class ClientInformationController extends Controller
             'email' => $client?->email ?? '-',
             'phone' => $client?->phone ?? '-',
             'currentAddress' => $client?->current_address ?? '-',
+            // DC03 — the client's profile-level declaration, null until they
+            // submit one. Repeats across a client's records by design: it
+            // declares the profile, not this particular appointment.
+            'declaration' => $this->declarations->present($client?->declarations->first()),
         ];
     }
 }

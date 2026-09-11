@@ -37,6 +37,31 @@ type ClientRecord = {
     email: string;
     phone: string;
     currentAddress: string;
+    declaration: ClientDeclaration | null;
+};
+
+/**
+ * DC03 — the client's profile-level Client Information Declaration. Null
+ * until they submit one. Repeats across a client's records by design: it
+ * declares their profile, not any single appointment.
+ */
+type DeclarationStatus =
+    | 'draft'
+    | 'submitted'
+    | 'pending_verification'
+    | 'verified'
+    | 'correction_required'
+    | 'rejected';
+
+type ClientDeclaration = {
+    id: string;
+    declarationText: string;
+    isChecked: boolean;
+    status: DeclarationStatus;
+    submittedAt: string | null;
+    verifiedAt: string | null;
+    verifiedByName: string | null;
+    correctionNote: string | null;
 };
 
 type ClientForm = {
@@ -101,10 +126,20 @@ type SessionForm = {
     psychologistName: string;
 };
 
-type VerificationState = {
-    checked: boolean;
-    submitted: boolean;
-    date: string;
+const declarationStatusLabels: Record<DeclarationStatus, string> = {
+    draft: 'DRAF',
+    submitted: 'DIHANTAR',
+    pending_verification: 'MENUNGGU SEMAKAN',
+    verified: 'DISAHKAN',
+    correction_required: 'PERLU PEMBETULAN',
+    rejected: 'DITOLAK',
+};
+
+const declarationStatusBadgeClass = (status: DeclarationStatus) => {
+    if (status === 'verified') return 'bg-emerald-100 text-emerald-800';
+    if (status === 'correction_required' || status === 'rejected') return 'bg-amber-100 text-amber-800';
+    if (status === 'submitted' || status === 'pending_verification') return 'bg-sky-100 text-sky-800';
+    return 'bg-gray-200 text-gray-700';
 };
 
 const locationOptions = [...adminSharedLocationOptions];
@@ -214,9 +249,9 @@ export default function AdminClientInformationPage() {
         marriageDate: '',
         childrenCount: '',
     });
-    const [verificationByRecordId, setVerificationByRecordId] = useState<
-        Record<string, VerificationState>
-    >({});
+    // DC03 — correction note being typed for the declaration under review.
+    const [correctionNote, setCorrectionNote] = useState('');
+    const [isVerifying, setIsVerifying] = useState(false);
 
     const [referenceFilter, setReferenceFilter] = useState('');
     const [applicationFilter, setApplicationFilter] = useState<
@@ -628,44 +663,74 @@ export default function AdminClientInformationPage() {
     const openClientDetail = (record: ClientRecord) => {
         setViewingRecord(record);
         setClientDetailTab('maklumat-peribadi');
+        setCorrectionNote('');
     };
 
-    const currentVerification = viewingRecord
-        ? (verificationByRecordId[viewingRecord.id] ?? {
-              checked: false,
-              submitted: false,
-              date: '',
-          })
-        : {
-              checked: false,
-              submitted: false,
-              date: '',
-          };
+    // The record in `records` is the source of truth — after a verify/
+    // correction the page reloads and `viewingRecord` would otherwise hold a
+    // stale copy of the declaration.
+    const viewingDeclaration = viewingRecord
+        ? (records.find((record) => record.id === viewingRecord.id)?.declaration ?? null)
+        : null;
 
-    const updateCurrentVerification = useCallback(
-        (nextState: Partial<VerificationState>) => {
-            if (!viewingRecord) {
-                return;
-            }
+    // DC03 AF1 — verify. Guarded server-side too (EF1/EF2).
+    const handleVerifyDeclaration = () => {
+        if (!viewingDeclaration || isVerifying) {
+            return;
+        }
 
-            setVerificationByRecordId((current) => {
-                const previousState = current[viewingRecord.id] ?? {
-                    checked: false,
-                    submitted: false,
-                    date: '',
-                };
+        setIsVerifying(true);
 
-                return {
-                    ...current,
-                    [viewingRecord.id]: {
-                        ...previousState,
-                        ...nextState,
-                    },
-                };
-            });
-        },
-        [viewingRecord],
-    );
+        router.patch(
+            `/admin/declarations/${viewingDeclaration.id}/verify`,
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => setFlashMessage('Perakuan klien disahkan. / Declaration verified.'),
+                onError: (errors) =>
+                    setFlashMessage(
+                        Object.values(errors)[0] ?? 'Could not verify this declaration.',
+                    ),
+                onFinish: () => setIsVerifying(false),
+            },
+        );
+    };
+
+    // DC03 AF2 — request correction. The note is what the client sees, so
+    // it is required.
+    const handleRequestCorrection = () => {
+        if (!viewingDeclaration || isVerifying) {
+            return;
+        }
+
+        if (!correctionNote.trim()) {
+            setFlashMessage(
+                'Sila nyatakan sebab pembetulan. / Please state the reason for the correction.',
+            );
+            return;
+        }
+
+        setIsVerifying(true);
+
+        router.patch(
+            `/admin/declarations/${viewingDeclaration.id}/correction`,
+            { note: correctionNote.trim() },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setCorrectionNote('');
+                    setFlashMessage(
+                        'Pembetulan dimohon. Klien boleh hantar semula. / Correction requested.',
+                    );
+                },
+                onError: (errors) =>
+                    setFlashMessage(
+                        Object.values(errors)[0] ?? 'Could not request a correction.',
+                    ),
+                onFinish: () => setIsVerifying(false),
+            },
+        );
+    };
 
     const renderActionButtons = (record: ClientRecord) => (
         <div className="flex items-center justify-end gap-2">
@@ -1590,7 +1655,7 @@ export default function AdminClientInformationPage() {
                                                         <span
                                                             className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getStatusBadgeClass(record.status)}`}
                                                         >
-                                                            {record.status.toUpperCase()}
+                                                            {record.status?.toUpperCase() ?? '-'}
                                                         </span>
                                                     </td>
                                                     <td className="px-3 py-2 whitespace-nowrap">
@@ -3118,120 +3183,146 @@ export default function AdminClientInformationPage() {
                                 {/* Tab 5: Pengesahan */}
                                 {clientDetailTab === 'pengesahan' && (
                                     <div className="space-y-4">
-                                        <div className="rounded-md border border-gray-200 bg-white p-4">
-                                            <div className="mb-3 rounded bg-gray-100 px-3 py-2">
-                                                <h4 className="text-sm font-semibold text-gray-800">
-                                                    Pengesahan / Confirmation
-                                                </h4>
+                                        {!viewingDeclaration && (
+                                            <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-600">
+                                                Klien belum menghantar perakuan maklumat. / This client has not
+                                                submitted their information declaration yet.
                                             </div>
-                                            <label className="flex cursor-pointer items-start gap-3">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={
-                                                        currentVerification.checked
-                                                    }
-                                                    disabled={
-                                                        currentVerification.submitted
-                                                    }
-                                                    onChange={(e) =>
-                                                        updateCurrentVerification(
-                                                            {
-                                                                checked:
-                                                                    e.target
-                                                                        .checked,
-                                                            },
-                                                        )
-                                                    }
-                                                    className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-blue-700 disabled:cursor-not-allowed"
-                                                />
-                                                <div>
-                                                    <p className="text-sm font-semibold text-gray-800">
-                                                        ** Saya mengaku bahawa
-                                                        segala maklumat yang
-                                                        diberikan di atas adalah
-                                                        BENAR dan TANPA SEBARANG
-                                                        UNSUR PAKSAAN DAN
-                                                        TEKANAN.
+                                        )}
+
+                                        {viewingDeclaration && (
+                                            <>
+                                                <div className="rounded-md border border-gray-200 bg-white p-4">
+                                                    <div className="mb-3 flex items-center justify-between rounded bg-gray-100 px-3 py-2">
+                                                        <h4 className="text-sm font-semibold text-gray-800">
+                                                            Pengesahan / Confirmation
+                                                        </h4>
+                                                        <span
+                                                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${declarationStatusBadgeClass(viewingDeclaration.status)}`}
+                                                        >
+                                                            {declarationStatusLabels[viewingDeclaration.status]}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex items-start gap-3">
+                                                        <span
+                                                            className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
+                                                                viewingDeclaration.isChecked
+                                                                    ? 'border-blue-700 bg-blue-700 text-white'
+                                                                    : 'border-gray-300 bg-white text-transparent'
+                                                            }`}
+                                                        >
+                                                            OK
+                                                        </span>
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-gray-800">
+                                                                {viewingDeclaration.declarationText}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-gray-500">
+                                                                Diakui oleh klien pada penghantaran. / Declared by the
+                                                                client at submission.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="mx-auto max-w-sm rounded-lg bg-blue-950 p-5 text-sm text-white">
+                                                    <h4 className="mb-3 font-semibold">Pengesahan Klien</h4>
+                                                    <div className="space-y-2">
+                                                        <div className="flex gap-3">
+                                                            <span className="w-28 text-blue-200">Nama</span>
+                                                            <span>:</span>
+                                                            <span className="font-medium">
+                                                                {viewingRecord.clientName}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-3">
+                                                            <span className="w-28 text-blue-200">Status</span>
+                                                            <span>:</span>
+                                                            <span className="font-medium">
+                                                                {declarationStatusLabels[viewingDeclaration.status]}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-3">
+                                                            <span className="w-28 text-blue-200">Tarikh Hantar</span>
+                                                            <span>:</span>
+                                                            <span className="font-medium">
+                                                                {viewingDeclaration.submittedAt ?? '-'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-3">
+                                                            <span className="w-28 text-blue-200">Disahkan Oleh</span>
+                                                            <span>:</span>
+                                                            <span className="font-medium">
+                                                                {viewingDeclaration.verifiedByName ?? '-'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-3">
+                                                            <span className="w-28 text-blue-200">Tarikh Sah</span>
+                                                            <span>:</span>
+                                                            <span className="font-medium">
+                                                                {viewingDeclaration.verifiedAt ?? '-'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {viewingDeclaration.correctionNote && (
+                                                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                        <p className="font-semibold">
+                                                            Nota pembetulan / Correction note
+                                                        </p>
+                                                        <p className="mt-1">{viewingDeclaration.correctionNote}</p>
+                                                    </div>
+                                                )}
+
+                                                {viewingDeclaration.status === 'verified' ? (
+                                                    <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-800">
+                                                        Perakuan ini telah disahkan. / This declaration has already
+                                                        been verified.
                                                     </p>
-                                                    <p className="mt-1 text-xs text-gray-500">
-                                                        Pihak UTM tidak akan
-                                                        bertanggungjawab ke atas
-                                                        sebarang kerosakan,
-                                                        kecederaan, kerugian
-                                                        atau kesilapan yang
-                                                        berlaku dalam
-                                                        perkhidmatan akibat
-                                                        maklumat yang salah
-                                                        diberikan.
-                                                    </p>
-                                                </div>
-                                            </label>
-                                        </div>
-                                        <div className="mx-auto max-w-sm rounded-lg bg-blue-950 p-5 text-sm text-white">
-                                            <h4 className="mb-3 font-semibold">
-                                                Pengesahan Klien
-                                            </h4>
-                                            <div className="space-y-2">
-                                                <div className="flex gap-3">
-                                                    <span className="w-28 text-blue-200">
-                                                        Nama
-                                                    </span>
-                                                    <span>:</span>
-                                                    <span className="font-medium">
-                                                        {
-                                                            viewingRecord.clientName
-                                                        }
-                                                    </span>
-                                                </div>
-                                                <div className="flex gap-3">
-                                                    <span className="w-28 text-blue-200">
-                                                        Status
-                                                    </span>
-                                                    <span>:</span>
-                                                    <span className="font-medium">
-                                                        {currentVerification.submitted
-                                                            ? 'DIHANTAR'
-                                                            : 'BELUM DIHANTAR'}
-                                                    </span>
-                                                </div>
-                                                <div className="flex gap-3">
-                                                    <span className="w-28 text-blue-200">
-                                                        Tarikh Hantar
-                                                    </span>
-                                                    <span>:</span>
-                                                    <span className="font-medium">
-                                                        {currentVerification.date ||
-                                                            '-'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className="mt-4 flex justify-center">
-                                                <button
-                                                    type="button"
-                                                    disabled={
-                                                        !currentVerification.checked ||
-                                                        currentVerification.submitted
-                                                    }
-                                                    onClick={() => {
-                                                        if (
-                                                            !currentVerification.checked
-                                                        )
-                                                            return;
-                                                        updateCurrentVerification(
-                                                            {
-                                                                submitted: true,
-                                                                date: new Date().toLocaleDateString(
-                                                                    'ms-MY',
-                                                                ),
-                                                            },
-                                                        );
-                                                    }}
-                                                    className="rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    Hantar
-                                                </button>
-                                            </div>
-                                        </div>
+                                                ) : (
+                                                    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                                                        <h4 className="text-sm font-semibold text-indigo-900">
+                                                            Semakan Perakuan / Verify Declaration
+                                                        </h4>
+                                                        <label className="mt-3 block space-y-1 text-sm">
+                                                            <span className="font-medium text-gray-700">
+                                                                Nota pembetulan (wajib jika minta pembetulan) /
+                                                                Correction note (required to request a correction)
+                                                            </span>
+                                                            <textarea
+                                                                value={correctionNote}
+                                                                onChange={(event) =>
+                                                                    setCorrectionNote(event.target.value)
+                                                                }
+                                                                rows={3}
+                                                                placeholder="Nyatakan maklumat yang perlu dibetulkan..."
+                                                                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100"
+                                                            />
+                                                        </label>
+                                                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                                                            <button
+                                                                type="button"
+                                                                disabled={isVerifying}
+                                                                onClick={handleRequestCorrection}
+                                                                className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                                                            >
+                                                                Minta Pembetulan / Request Correction
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={isVerifying}
+                                                                onClick={handleVerifyDeclaration}
+                                                                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                            >
+                                                                Sahkan / Verify
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
                                         <div className="flex justify-center">
                                             <button
                                                 type="button"

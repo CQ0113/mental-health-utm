@@ -3,13 +3,17 @@
 use App\Http\Controllers\Admin\AppointmentController as AdminAppointmentController;
 use App\Http\Controllers\Admin\ClientInformationController;
 use App\Http\Controllers\Admin\CounsellorController;
+use App\Http\Controllers\Admin\DeclarationController as AdminDeclarationController;
 use App\Http\Controllers\Admin\SlotController;
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Counsellor\AppointmentController as CounsellorAppointmentController;
+use App\Http\Controllers\Counsellor\DeclarationController as CounsellorDeclarationController;
 use App\Http\Controllers\Counsellor\SlotController as CounsellorSlotController;
+use App\Http\Controllers\DeclarationController;
 use App\Http\Controllers\ForumModerationController;
 use App\Http\Controllers\MyAccountController;
+use App\Http\Controllers\TermsAcceptanceController;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
 
@@ -59,6 +63,9 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
 	Route::get('/appointments', [AdminAppointmentController::class, 'index'])->name('admin.appointments');
 	Route::patch('/appointments/{appointment}/review', [AdminAppointmentController::class, 'review'])->name('admin.appointments.review');
 
+	Route::patch('/declarations/{declaration}/verify', [AdminDeclarationController::class, 'verify'])->name('admin.declarations.verify');
+	Route::patch('/declarations/{declaration}/correction', [AdminDeclarationController::class, 'requestCorrection'])->name('admin.declarations.correction');
+
 	Route::inertia('/materials', 'admin/materials')->name('admin.materials');
 	Route::inertia('/learning-materials', 'admin/learning-materials')->name('admin.learning-materials');
 	Route::inertia('/forum', 'admin/forum')->name('admin.forum');
@@ -70,6 +77,9 @@ Route::prefix('counsellor')->middleware(['auth', 'role:counselor'])->group(funct
 	Route::patch('/appointments/{appointment}/review', [CounsellorAppointmentController::class, 'review'])->name('counsellor.appointments.review');
 	Route::get('/slots', [CounsellorSlotController::class, 'index'])->name('counsellor.slots');
 	Route::post('/slots', [CounsellorSlotController::class, 'save'])->name('counsellor.slots.save');
+
+	Route::patch('/declarations/{declaration}/verify', [CounsellorDeclarationController::class, 'verify'])->name('counsellor.declarations.verify');
+	Route::patch('/declarations/{declaration}/correction', [CounsellorDeclarationController::class, 'requestCorrection'])->name('counsellor.declarations.correction');
 	Route::inertia('/caseload', 'counsellor/caseload')->name('counsellor.caseload');
 	Route::inertia('/tasks', 'counsellor/tasks')->name('counsellor.tasks');
 	Route::inertia('/assessments', 'counsellor/assessments')->name('counsellor.assessments');
@@ -83,6 +93,8 @@ Route::prefix('psycare')->middleware(['auth', 'role:client'])->group(function ()
 	Route::inertia('/ujian-psikometrik', 'psycare/ujian-psikometrik')->name('psycare.ujian-psikometrik');
 	Route::inertia('/resource-library', 'psycare/resource-library')->name('psycare.resource-library');
 	Route::get('/perkhidmatan', [MyAccountController::class, 'show'])->name('psycare.perkhidmatan');
+	Route::post('/declarations', [DeclarationController::class, 'store'])->name('psycare.declarations.store');
+	Route::post('/terms/accept', [TermsAcceptanceController::class, 'store'])->name('psycare.terms.accept');
 	Route::inertia('/jurnal-pintar', 'psycare/jurnal-pintar')->name('psycare.jurnal-pintar');
 	Route::inertia('/forum-sokongan', 'psycare/forum-sokongan')->name('psycare.forum-sokongan');
 });

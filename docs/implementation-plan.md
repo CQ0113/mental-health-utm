@@ -16,21 +16,22 @@ It is based on a full read of:
 
 ## 1. Where The Project Actually Stands Today
 
-**Status as of 2026-08-20 — Foundations, Phase 1, and Phase 2 are done and verified; Phase 3 onward has not started.** Full day-by-day record: `LOG/`.
+**Status as of 2026-09-11 — Foundations and Phases 1–3 are done and verified; Phase 4 onward has not started.** Full day-by-day record: `LOG/`.
 
 | Area | Spec says | Codebase actually has now |
 | --- | --- | --- |
 | Eloquent models | 32 domain models (`docs/entity-data-dictionary.md`) | **34** (all 32 + `CounsellingService` + `TermsAcceptance`) — `HasUuids`, enum casts, relationships. Done. |
 | PHP enums | 20 Postgres enum types | **20**, under `app/Enums`, mirroring the live schema's enum values exactly (including the `appointment_status` quirk of having both `complete` and `completed`). Done. |
-| Controllers | ~15 controllers across 8 modules | **8 real ones**: `Auth\AuthController`, `Admin\CounsellorController`, `Admin\ClientInformationController`, `MyAccountController`, `Admin\SlotController`, `AppointmentController`, `Admin\AppointmentController`, `Counsellor\AppointmentController`. Plus the original `ForumModerationController` (still keyword-based — Phase 8 replaces its internals with the n8n workflow, §5.1). The other ~7 don't exist yet. |
+| Controllers | ~15 controllers across 8 modules | **13 real ones**: `Auth\AuthController`, `Admin\CounsellorController`, `Admin\ClientInformationController`, `MyAccountController`, `Admin\SlotController`, `Counsellor\SlotController`, `AppointmentController`, `Admin\AppointmentController`, `Counsellor\AppointmentController`, `DeclarationController`, `Admin\DeclarationController`, `Counsellor\DeclarationController`, `TermsAcceptanceController`. Plus the original `ForumModerationController` (still keyword-based — Phase 8 replaces its internals with the n8n workflow, §5.1). |
 | Laravel migrations | Should reproduce `docs/postgresql-database-schema.md` | **Done** — 9 new migrations + a rewritten stock `users` migration reproduce all 38 tables. Validated clean against scratch SQLite, marked as already-applied on live Supabase (no data touched). |
 | Routes | Role-secured, data-backed | **Auth + Identity + Appointment/Scheduling routes are real** (`/login`, `/logout`, `/admin/counsellor-ppsi`, `/admin/client-information`, `/psycare/perkhidmatan`, `/admin/slots`, `/counsellor/slots`, `/admin/appointments`, `/counsellor/appointments`, `/psycare/permohonan`, `/psycare/rekod-temujanji`). The remaining routes are still `Route::inertia(...)` with zero props, behind role middleware but serving mock data. |
 | Authentication | Client/Admin/Counsellor roles, permission checks everywhere | **Done** — hand-built session auth (`password_hash`-based), `role:admin\|client\|counselor` middleware guarding all three portals, plus a dev-only one-click quick-login panel on `/login` (local/testing env only) for fast manual QA. 10 Pest tests covering login/quick-login/role-blocking/logout, all passing. |
 | Identity module (UM01–UM03) | Counsellor onboarding, client profile management | **Done** — see Phase 1 below. Two real schema/UX gaps found and resolved with the user during the build (Client+Appointment combined creation; decorative fields left unbacked by schema) — see the Phase 1 entry for what actually shipped. |
-| Terms Acceptance | Blocking first-use pop-up (`docs/architecture-diagram.md`) | **Not built**, despite being called out as foundational in §3.4 below. Only the `TermsAcceptance` Eloquent model exists (created in the Phase 0 model batch) — no controller, no route, no blocking-modal wiring on the client side. Real gap, flagged here rather than left implied-done. |
-| Frontend data | Should come from Inertia props / form submissions | Identity pages (Phase 1) and Appointment/Scheduling pages (Phase 2 — `admin/slots.tsx`, `psycare/permohonan.tsx`, `psycare/rekod-temujanji.tsx`, the queue+review parts of `admin/appointments.tsx` and `counsellor/appointments.tsx`) are wired to real data. Everything else (Phases 3–10, plus the attendance/report/walk-in-create modals inside the appointment pages) is still `useState` mock arrays. |
+| Terms Acceptance | Blocking first-use pop-up (`docs/architecture-diagram.md`) | **Done** (Phase 3, 2026-09-11) — the gap §3.4 flagged is closed. Versioned per `config('psycare.terms.version')`, acceptance recorded per client per version, and the pop-up is driven by a shared Inertia prop so it blocks every client page until accepted. **Placeholder wording** — the real Terms text still has to come from you. |
+| Declaration (DC01–DC03) | Client declares their info is true; Admin/Counsellor verify | **Done** (Phase 3) — profile-level declaration, submit → verify or request-correction → client resubmits, with verification events recorded. Both Admin and Counsellor can verify. |
+| Frontend data | Should come from Inertia props / form submissions | Identity (Phase 1), Appointment/Scheduling (Phase 2 — `admin/slots.tsx`, `counsellor/slots.tsx`, `psycare/permohonan.tsx`, `psycare/rekod-temujanji.tsx`, the queue+review parts of both appointment pages) and Declaration/Terms (Phase 3 — the client layout's blocking pop-up, the Pengesahan tabs, the counsellor review modal) are wired to real data. Everything else (Phases 4–10, plus the attendance/report/walk-in-create modals inside the appointment pages) is still `useState` mock arrays. |
 
-This confirms exactly what `docs/architecture-diagram.md` itself says in its Notes section: *"Current frontend pages contain mock/local data behavior in several areas... should be implemented as the prototype moves from mock data to full backend persistence."* That sentence is still the whole scope of what's left (Phases 3–10).
+This confirms exactly what `docs/architecture-diagram.md` itself says in its Notes section: *"Current frontend pages contain mock/local data behavior in several areas... should be implemented as the prototype moves from mock data to full backend persistence."* That sentence is still the whole scope of what's left (Phases 4–10).
 
 ## 2. Guiding Principles
 
@@ -41,7 +42,7 @@ This confirms exactly what `docs/architecture-diagram.md` itself says in its Not
 5. **Match the use-case error states, not just the happy path.** Each UC has explicit Exception Flows (EF) with specific messages — `docs/use-case-descriptions.md` is effectively the acceptance-test spec for validation logic.
 6. **Keep Supabase as the single source of truth.** `.env` already points at it (Session Pooler), and `SESSION_DRIVER`, `CACHE_STORE`, `QUEUE_CONNECTION` already run through it — no separate local dev database.
 
-## 3. Foundational Work — ✅ Done (2026-08-16), except §3.4
+## 3. Foundational Work — ✅ Done (§3.4 completed later, in Phase 3)
 
 ### 3.1 Laravel migrations for the full schema — ✅ Done
 
@@ -61,9 +62,9 @@ All 32 entities from `docs/entity-data-dictionary.md`, plus `CounsellingService`
 
 One real bug found and fixed during this build, worth remembering for any future form using `useForm().setData()` immediately followed by `.post()`: React batches the state update, so the `post()` fires with the *previous* render's data, not the just-set value. The quick-login buttons hit exactly this (clicking "Admin" logged in as whatever the *previous* click had queued). Fix: pass the value directly into `router.post(url, { field: value })` instead of going through `setData` + a separate `post()` call.
 
-### 3.4 Terms Acceptance (blocking pop-up) — ❌ Not done
+### 3.4 Terms Acceptance (blocking pop-up) — ✅ Done in Phase 3 (2026-09-11)
 
-Called out as foundational here, but never actually built. Only the `TermsAcceptance` Eloquent model exists (from the §3.2 batch) — no `TermsAcceptanceController`, no route, no blocking-modal logic gating first client login. This is a real gap between what this plan said was necessary and what shipped. Since every client-side page currently renders without any consent check, this should be picked up early in Phase 3 (Declaration) rather than left for Phase 10 — it's a similar shape of work (a status check + blocking UI) and the two are easy to build together.
+Called out as foundational here but skipped at the time, leaving every client page rendering without a consent check. Closed in Phase 3 alongside Declaration, as this section recommended: `TermsAcceptanceService` + `TermsAcceptanceController`, a `termsAcceptance` prop shared from `HandleInertiaRequests`, and a blocking modal in the client layout. See the Phase 3 entry for details and for the one thing still outstanding (the real Terms wording).
 
 ### 3.5 Seeders — ✅ Done, smaller than planned
 
@@ -95,11 +96,17 @@ Each phase lists: the use cases it satisfies, the backend pieces to add, the fro
 - **Verified:** 27 Pest tests (slot save/overlap-rejection/delete/nonexistent-reference-rejection, counsellor-vs-admin slot scoping across both real pages, large-batch query-count regression, booking happy-path + EF2 capacity + AS02 follow-up eligibility both ways, AS07 both stages + EF3 rejection, role blocking, page-render prop-shape smoke tests) — all passing, full suite 48/48. Then the whole lifecycle driven live in a real browser against Supabase: admin published a slot → client booked it (`PUS/2026/00001`, real counsellor name shown) → admin moved it to counsellor review → counsellor approved → client's records page showed `Approved`. Test data cleaned out of Supabase afterward.
 - **Lesson (dev-only):** `php artisan serve`'s multi-worker mode raced Playwright's XHR login redirects intermittently — `PHP_CLI_SERVER_WORKERS=1` plus logging in via direct POST (not the quick-login button) made browser tests deterministic. Also: `/login/quick` is guest-middleware-gated, so switching roles in a test requires an explicit logout first.
 
-### Phase 3 — Declaration (DC01–DC03) — 🔜 Next, not started
+### Phase 3 — Declaration (DC01–DC03) + Terms Acceptance — ✅ Done (2026-09-11)
 
-- **Backend:** `DeclarationController`; ties into both the client profile Confirmation/Pengesahan tab and the appointment submission flow (a declaration can be linked to an appointment or standalone per the ERD).
-- **Also pick up here: Terms Acceptance (§3.4's gap).** Same shape of work (a status check gating access + a blocking modal until the client acts), and it was supposed to ship with Foundations but didn't. Build `TermsAcceptanceController` + the client-side blocking pop-up alongside Declaration rather than deferring it again to Phase 10.
-- **Frontend:** Confirmation tab inside `ClientProfileForm.tsx`, plus admin/counsellor verification UI inside `admin/client-information.tsx`.
+- **Two separate things, kept separate** (the schema already insisted on this and the UI now matches): **Terms and Conditions** is consent to use the system (`terms_acceptances`, blocking first-use pop-up); the **Client Information Declaration** is the client swearing their profile details are true (`declarations`, Pengesahan/Confirmation tab). Different tables, different services, different flows.
+- **Declaration scope — profile-level, submitted once** (user decision, 2026-09-11): the client declares their Client Information Form is true, so `declarations.appointment_id` stays null. The column remains for a per-appointment variant that isn't built; the booking form deliberately gained no declaration checkbox.
+- **Backend:** `App\Services\DeclarationService` holds the DC01–DC03 transitions (submit / verify / request-correction, including EF1 "tick the box first", EF1 "can't verify what wasn't submitted", and EF2 "already verified"); `DeclarationController` for the client's DC02 submit; `Admin\DeclarationController` **and** `Counsellor\DeclarationController` for DC03 — the use case names both roles as verifiers, and they share the service so the two can't drift. `App\Services\TermsAcceptanceService` + `TermsAcceptanceController` handle acceptance, versioned per `config('psycare.terms.version')`.
+- **Versioned content in `config/psycare.php`:** the terms version and the declaration wording live there. The wording is **copied onto each declaration row at submission time**, so editing the config later never rewrites what past clients actually agreed to. Bumping the terms version re-prompts everyone while their old acceptance stays on record.
+- **Frontend:** the blocking pop-up in `psycare/Layout.tsx` is driven by a `termsAcceptance` prop shared from `HandleInertiaRequests` (null for non-clients, so it never appears in the admin/counsellor portals); the Pengesahan tab in `ClientProfileForm.tsx` submits for real and shows the verification outcome back to the client (including the correction note, with resubmission allowed); `admin/client-information.tsx`'s Pengesahan tab and the counsellor's appointment review modal both verify or request corrections.
+- **Removed:** `resources/js/lib/psycare-declaration.ts`, the localStorage mock that backed both features, and the prototype "Status Deklarasi" toggle that let a client flip their own declaration to Submitted without submitting it (DC02 AF2 itself calls that a *prototype control*).
+- **Bug found and fixed while testing:** `admin/client-information.tsx` called `record.status.toUpperCase()` but `ClientInformationController::present()` never returned a `status` key — the admin page blanked out whenever any record existed. `clients` has no status column (Phase 1), so it now reports the linked login account's state; the UI guards the field too, and a test asserts the key is present.
+- **Verified:** 20 Pest tests (submit + EF1/EF2, resubmit-after-correction, verified-is-final, both verifier roles, correction-note-required, role blocking, terms accept/re-accept/version-bump/null-for-admins, and both verification surfaces carrying their data) — all passing, full suite 68/68. Then driven live in a browser against Supabase: pop-up blocked the portal → accepted → closed without a reload and stayed closed → declaration submitted → admin verified it → client saw DISAHKAN. 14/14 browser checks, no JS errors. Test data cleaned out of Supabase afterward.
+- **Still open (needs your input):** the pop-up shows placeholder terms copy — the real Terms and Conditions wording has to come from you. Drop it into the modal in `psycare/Layout.tsx` and bump `PSYCARE_TERMS_VERSION` when it lands.
 - **Verify against:** `docs/real-ui-captures/01-client-terms-acceptance.png` (Terms Acceptance), `04-client-services-declaration.png` (Declaration).
 
 ### Phase 4 — Telemedicine & Attendance (TA01–TA04) — ⏳ Not started
@@ -211,11 +218,11 @@ No table needs a migration change for anything decided in this session.
 ## 6. Suggested Sequencing Summary
 
 ```text
-[DONE] Foundations (migrations, models, auth/RBAC, seeders)          — except Terms Acceptance, moved to Phase 3
+[DONE] Foundations (migrations, models, auth/RBAC, seeders)
 [DONE] Phase 1  Identity & User Management
 [DONE] Phase 2  Appointment & Scheduling    (Daily.co still stubbed — provision key before Phase 4)
-  -> Phase 3  Declaration + Terms Acceptance (needs Identity + Appointment)  [NEXT]
-  -> Phase 4  Telemedicine & Attendance      (needs Appointment)      — needs n8n/Gemini + Daily.co provisioned
+[DONE] Phase 3  Declaration + Terms Acceptance (real Terms wording still needed from the user)
+  -> Phase 4  Telemedicine & Attendance      (needs Appointment)      — needs n8n/Gemini + Daily.co provisioned  [NEXT]
   -> Phase 5  Chatbot & Tracking             (needs Identity; feeds Caseload) — needs n8n/Gemini provisioned
   -> Phase 6  Psychometric Self-Assessment   (needs Identity; feeds Caseload/Triage) — needs n8n/Gemini; PDF-upload sub-flow deferred
   -> Phase 7  Resource Library               (independent, can run in parallel with 4-6) — needs Google Translate reachability
@@ -224,7 +231,7 @@ No table needs a migration change for anything decided in this session.
   -> Phase 10 Hardening (validation, policies, tests, QA re-capture)
 ```
 
-Phases 4, 6, and 7 have no dependency on each other and can be built in parallel if more than one person/session is working on this. Phases 1 and 2 are done — Phase 3 (Declaration + Terms Acceptance) is the next unblocked phase. Before Phase 4 or 5 start (whichever comes first): provision n8n + a Google Gemini API key (both need it) **and** a Daily.co API key (Phase 2's `MeetingLinkService` is stubbed until then, and Phase 4's `TA04` auto-attendance depends on Daily.co webhooks); Phase 3 needs none of these.
+Phases 4, 6, and 7 have no dependency on each other and can be built in parallel if more than one person/session is working on this. Phases 1–3 are done. **Phase 4 is next but is the first phase that needs external accounts**: a Daily.co API key (Phase 2's `MeetingLinkService` is stubbed until then, and `TA04` auto-attendance depends on Daily.co webhooks) and, for Phase 5 onward, n8n + a Google Gemini API key. Phase 7 (Resource Library) is the one remaining phase that needs no external provisioning, so it's the natural alternative if those keys aren't available yet.
 
 ## 7. What "Done" Looks Like Per Phase
 

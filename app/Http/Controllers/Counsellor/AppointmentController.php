@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Counsellor;
 use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Services\DeclarationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -19,10 +20,23 @@ use Inertia\Response;
  */
 class AppointmentController extends Controller
 {
+    public function __construct(private readonly DeclarationService $declarations) {}
+
     public function index(): Response
     {
         return Inertia::render('counsellor/appointments', [
-            'appointments' => Appointment::with('client', 'counsellor', 'location', 'slot')
+            'appointments' => Appointment::with([
+                'counsellor',
+                'location',
+                'slot',
+                // DC03 — a counsellor verifies a client's profile-level
+                // declaration from the appointment they're reviewing, since
+                // only Admin has a Client Information page.
+                'client.declarations' => fn ($query) => $query
+                    ->whereNull('appointment_id')
+                    ->with('verifiedBy')
+                    ->latest('created_at'),
+            ])
                 ->orderByDesc('created_at')
                 ->get()
                 ->map(fn (Appointment $appointment) => $this->present($appointment)),
@@ -72,6 +86,7 @@ class AppointmentController extends Controller
             'counsellorReviewNote' => $appointment->counsellor_review_note,
             'counsellorReviewedAt' => $appointment->counsellor_reviewed_at?->toDateTimeString(),
             'meetingLink' => $appointment->meeting_link,
+            'declaration' => $this->declarations->present($appointment->client?->declarations->first()),
         ];
     }
 }

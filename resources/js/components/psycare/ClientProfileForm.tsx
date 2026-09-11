@@ -1,13 +1,5 @@
-import { useEffect, useState } from 'react';
-import {
-    getMockCurrentPsycareClient,
-    getPsycareClientInformationDeclarationRecord,
-    PSYCARE_CLIENT_INFORMATION_DECLARATION_UPDATED_EVENT,
-    PSYCARE_CLIENT_INFORMATION_DECLARATION_VERSION,
-    savePsycareClientInformationDeclaration,
-    setPsycareClientInformationDeclarationStatus,
-    type PsycareClientInformationDeclarationRecord,
-} from '@/lib/psycare-declaration';
+import { router } from '@inertiajs/react';
+import { useState } from 'react';
 import { clientProfileMockSeed } from '@/lib/psycare-data';
 
 type ProfileTab = 'personal' | 'study' | 'marriage' | 'health' | 'confirmation';
@@ -49,8 +41,31 @@ export type MyClientProfile = {
     profileLocked: boolean;
 };
 
+/**
+ * DC01/DC02 — the client's profile-level Client Information Declaration.
+ * Null until they submit one for the first time.
+ */
+export type MyDeclaration = {
+    id: string;
+    declarationText: string;
+    isChecked: boolean;
+    status:
+        | 'draft'
+        | 'submitted'
+        | 'pending_verification'
+        | 'verified'
+        | 'correction_required'
+        | 'rejected';
+    submittedAt: string | null;
+    verifiedAt: string | null;
+    verifiedByName: string | null;
+    correctionNote: string | null;
+};
+
 type ClientProfileFormProps = {
     myClientProfile?: MyClientProfile | null;
+    myDeclaration?: MyDeclaration | null;
+    declarationText?: string;
 };
 
 const normalizeMyClientType = (type: MyClientProfile['clientType']) => {
@@ -59,14 +74,18 @@ const normalizeMyClientType = (type: MyClientProfile['clientType']) => {
     return 'ALUMNI';
 };
 
-export default function ClientProfileForm({ myClientProfile }: ClientProfileFormProps = {}) {
+export default function ClientProfileForm({
+    myClientProfile,
+    myDeclaration = null,
+    declarationText,
+}: ClientProfileFormProps = {}) {
     const [activeTab, setActiveTab] = useState<ProfileTab>('personal');
-    const [declarationRecord, setDeclarationRecord] =
-        useState<PsycareClientInformationDeclarationRecord | null>(null);
-    const [isDeclarationChecked, setIsDeclarationChecked] = useState(false);
+    const [isDeclarationChecked, setIsDeclarationChecked] = useState(
+        myDeclaration?.isChecked ?? false,
+    );
     const [declarationMessage, setDeclarationMessage] = useState('');
+    const [isSubmittingDeclaration, setIsSubmittingDeclaration] = useState(false);
     const profile = clientProfileMockSeed;
-    const currentClient = getMockCurrentPsycareClient();
 
     // Fields that exist on the real `clients` table come from the logged-in
     // client's actual record. Everything else (guardian/study/health/
@@ -314,13 +333,22 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
         submitted: 'DIHANTAR / SUBMITTED',
         notSubmitted: 'BELUM DIHANTAR / NOT SUBMITTED',
         submittedButton: 'Telah Dihantar / Submitted',
-        statusControl: 'Status Deklarasi / Declaration Status',
-        markNotSubmitted: 'Belum Dihantar / Not Submitted',
-        markSubmitted: 'Dihantar / Submitted',
+        resubmitButton: 'Hantar Semula / Resubmit',
+        // DC03 outcomes, shown back to the client on their own declaration.
+        statusLabels: {
+            draft: 'DRAF / DRAFT',
+            submitted: 'DIHANTAR / SUBMITTED',
+            pending_verification: 'MENUNGGU SEMAKAN / PENDING VERIFICATION',
+            verified: 'DISAHKAN / VERIFIED',
+            correction_required: 'PERLU PEMBETULAN / CORRECTION REQUIRED',
+            rejected: 'DITOLAK / REJECTED',
+        } as Record<string, string>,
+        correctionRequired:
+            'Pembetulan diperlukan / Correction required',
+        verifiedNotice:
+            'Perakuan anda telah disahkan / Your declaration has been verified',
         declarationSaved:
             'Perakuan klien telah dihantar. / Client declaration has been submitted.',
-        declarationStatusUpdated:
-            'Status deklarasi dikemas kini. / Declaration status updated.',
         declarationRequired:
             'Sila tandakan kotak perakuan sebelum menghantar. / Please tick the declaration checkbox before submitting.',
         noData: 'Tiada data dalam jadual / No data available in table',
@@ -330,87 +358,41 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
     };
 
     const headerSubtitle = `${personalDetails.matricNo} / ${personalDetails.fullName}`;
-    const isDeclarationSubmitted = Boolean(
-        declarationRecord?.declared &&
-        declarationRecord.version ===
-            PSYCARE_CLIENT_INFORMATION_DECLARATION_VERSION,
-    );
-    const declarationSubmittedDate =
-        isDeclarationSubmitted && declarationRecord?.declaredAt
-            ? new Date(declarationRecord.declaredAt).toLocaleString('ms-MY')
-            : '-';
 
-    useEffect(() => {
-        if (!currentClient) {
-            return;
-        }
-
-        const refreshDeclarationRecord = () => {
-            const nextRecord = getPsycareClientInformationDeclarationRecord(
-                currentClient.id,
-            );
-
-            setDeclarationRecord(nextRecord);
-            setIsDeclarationChecked(
-                Boolean(
-                    nextRecord?.declared &&
-                    nextRecord.version ===
-                        PSYCARE_CLIENT_INFORMATION_DECLARATION_VERSION,
-                ),
-            );
-        };
-
-        refreshDeclarationRecord();
-        window.addEventListener('storage', refreshDeclarationRecord);
-        window.addEventListener(
-            PSYCARE_CLIENT_INFORMATION_DECLARATION_UPDATED_EVENT,
-            refreshDeclarationRecord,
-        );
-
-        return () => {
-            window.removeEventListener('storage', refreshDeclarationRecord);
-            window.removeEventListener(
-                PSYCARE_CLIENT_INFORMATION_DECLARATION_UPDATED_EVENT,
-                refreshDeclarationRecord,
-            );
-        };
-    }, [currentClient]);
+    const declarationStatus = myDeclaration?.status ?? null;
+    const isDeclarationSubmitted = Boolean(myDeclaration?.submittedAt);
+    const isDeclarationVerified = declarationStatus === 'verified';
+    const needsCorrection = declarationStatus === 'correction_required';
+    // A verified declaration is final. One sent back for correction is
+    // editable again so the client can fix their details and resubmit.
+    const isDeclarationLocked = isDeclarationVerified || (isDeclarationSubmitted && !needsCorrection);
+    const declarationSubmittedDate = myDeclaration?.submittedAt
+        ? new Date(myDeclaration.submittedAt).toLocaleString('ms-MY')
+        : '-';
 
     const handleDeclarationSubmit = () => {
-        if (!currentClient) {
-            return;
-        }
-
+        // DC02 EF1 — checkbox is required before submitting.
         if (!isDeclarationChecked) {
             setDeclarationMessage(copy.declarationRequired);
             return;
         }
 
-        savePsycareClientInformationDeclaration(
-            currentClient.id,
-            currentClient.fullName,
-        );
-        setDeclarationRecord(
-            getPsycareClientInformationDeclarationRecord(currentClient.id),
-        );
-        setDeclarationMessage(copy.declarationSaved);
-    };
+        setIsSubmittingDeclaration(true);
+        setDeclarationMessage('');
 
-    const handleDeclarationStatusSwitch = (declared: boolean) => {
-        if (!currentClient) {
-            return;
-        }
-
-        setPsycareClientInformationDeclarationStatus(
-            currentClient.id,
-            currentClient.fullName,
-            declared,
+        router.post(
+            '/psycare/declarations',
+            { is_checked: true },
+            {
+                preserveScroll: true,
+                onSuccess: () => setDeclarationMessage(copy.declarationSaved),
+                onError: (errors) =>
+                    setDeclarationMessage(
+                        Object.values(errors)[0] ?? copy.declarationRequired,
+                    ),
+                onFinish: () => setIsSubmittingDeclaration(false),
+            },
         );
-        setDeclarationRecord(
-            getPsycareClientInformationDeclarationRecord(currentClient.id),
-        );
-        setIsDeclarationChecked(declared);
-        setDeclarationMessage(copy.declarationStatusUpdated);
     };
 
     return (
@@ -1012,7 +994,7 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
                                 <input
                                     type="checkbox"
                                     checked={isDeclarationChecked}
-                                    disabled={isDeclarationSubmitted}
+                                    disabled={isDeclarationLocked}
                                     onChange={(event) => {
                                         setIsDeclarationChecked(
                                             event.target.checked,
@@ -1023,7 +1005,7 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
                                 />
                                 <div>
                                     <p className="text-sm font-semibold text-gray-800">
-                                        {copy.declaration}
+                                        {declarationText ?? copy.declaration}
                                     </p>
                                     <p className="mt-1 text-xs text-gray-500">
                                         {copy.disclaimer}
@@ -1031,39 +1013,32 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
                                 </div>
                             </label>
 
-                            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">
-                                <p className="font-semibold text-gray-800">
-                                    {copy.statusControl}
-                                </p>
-                                <div className="inline-flex overflow-hidden rounded-lg border border-gray-300">
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            handleDeclarationStatusSwitch(false)
-                                        }
-                                        className={`px-3 py-1.5 text-xs font-semibold ${
-                                            !isDeclarationSubmitted
-                                                ? 'bg-gray-800 text-white'
-                                                : 'bg-white text-gray-700 hover:bg-gray-50'
-                                        }`}
-                                    >
-                                        {copy.markNotSubmitted}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            handleDeclarationStatusSwitch(true)
-                                        }
-                                        className={`border-l border-gray-300 px-3 py-1.5 text-xs font-semibold ${
-                                            isDeclarationSubmitted
-                                                ? 'bg-emerald-600 text-white'
-                                                : 'bg-white text-gray-700 hover:bg-gray-50'
-                                        }`}
-                                    >
-                                        {copy.markSubmitted}
-                                    </button>
+                            {needsCorrection && (
+                                <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                    <p className="font-semibold">
+                                        {copy.correctionRequired}
+                                    </p>
+                                    <p className="mt-1">
+                                        {myDeclaration?.correctionNote}
+                                    </p>
                                 </div>
-                            </div>
+                            )}
+
+                            {isDeclarationVerified && (
+                                <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                    <p className="font-semibold">
+                                        {copy.verifiedNotice}
+                                    </p>
+                                    <p className="mt-1">
+                                        {myDeclaration?.verifiedByName ?? '-'} •{' '}
+                                        {myDeclaration?.verifiedAt
+                                            ? new Date(
+                                                  myDeclaration.verifiedAt,
+                                              ).toLocaleString('ms-MY')
+                                            : '-'}
+                                    </p>
+                                </div>
+                            )}
 
                             <div className="mx-auto mt-4 max-w-sm rounded-lg bg-blue-950 p-5 text-sm text-white">
                                 <h4 className="mb-3 font-semibold">
@@ -1085,8 +1060,8 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
                                         </span>
                                         <span>:</span>
                                         <span className="font-medium">
-                                            {isDeclarationSubmitted
-                                                ? copy.submitted
+                                            {declarationStatus
+                                                ? copy.statusLabels[declarationStatus]
                                                 : copy.notSubmitted}
                                         </span>
                                     </div>
@@ -1108,13 +1083,20 @@ export default function ClientProfileForm({ myClientProfile }: ClientProfileForm
                                 <div className="mt-4 flex justify-center">
                                     <button
                                         type="button"
-                                        disabled={isDeclarationSubmitted}
+                                        disabled={
+                                            isDeclarationLocked ||
+                                            isSubmittingDeclaration
+                                        }
                                         onClick={handleDeclarationSubmit}
                                         className="rounded-lg bg-emerald-500 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
                                     >
-                                        {isDeclarationSubmitted
-                                            ? copy.submittedButton
-                                            : 'Hantar / Submit'}
+                                        {isSubmittingDeclaration
+                                            ? '…'
+                                            : isDeclarationLocked
+                                              ? copy.submittedButton
+                                              : needsCorrection
+                                                ? copy.resubmitButton
+                                                : 'Hantar / Submit'}
                                     </button>
                                 </div>
                             </div>

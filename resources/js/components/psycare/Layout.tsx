@@ -1,20 +1,25 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { setPsycareLanguage, usePsycareLanguage } from '@/lib/psycare-language';
-import {
-    ensurePsycareTermsAcceptanceRecord,
-    getMockCurrentPsycareClient,
-    hasPsycareTermsBeenAccepted,
-    getPsycareTermsAcceptanceRecord,
-    savePsycareTermsAcceptance,
-    PSYCARE_TERMS_ACCEPTANCE_UPDATED_EVENT,
-} from '@/lib/psycare-declaration';
 import FloatingChatbot from './FloatingChatbot';
 
 const EMOTION_RECORDS_STORAGE_KEY = 'psycare.emotion.records';
 
 type LayoutProps = {
     children: ReactNode;
+};
+
+/**
+ * Shared from HandleInertiaRequests. Null for anyone who isn't a client
+ * with a profile, which is how the admin/counsellor portals never see the
+ * blocking pop-up.
+ */
+type TermsAcceptance = {
+    version: string;
+    accepted: boolean;
+    acceptedAt: string | null;
+    clientName: string;
+    clientIdentifier: string | null;
 };
 
 type NavigationItem = {
@@ -65,12 +70,19 @@ export default function Layout({ children }: LayoutProps) {
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [actionMessage, setActionMessage] = useState('');
     const [isEmotionPendingToday, setIsEmotionPendingToday] = useState(false);
-    const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
     const [isTermsConfirmed, setIsTermsConfirmed] = useState(false);
-    const [isTermsAccepted, setIsTermsAccepted] = useState(false);
+    const [isAcceptingTerms, setIsAcceptingTerms] = useState(false);
+    const [justAccepted, setJustAccepted] = useState(false);
     const language = usePsycareLanguage();
-    const { url } = usePage();
-    const currentClient = getMockCurrentPsycareClient();
+    const { url, props } = usePage<{ termsAcceptance: TermsAcceptance | null }>();
+    const termsAcceptance = props.termsAcceptance ?? null;
+    // The pop-up blocks the portal until the client accepts the version
+    // currently in force. The server prop is the source of truth (accepting
+    // on one device closes it everywhere on next load); `justAccepted`
+    // dismisses it the instant the save succeeds rather than making the
+    // client stare at a blocking overlay until the reloaded props arrive.
+    const isTermsModalOpen =
+        Boolean(termsAcceptance) && !termsAcceptance?.accepted && !justAccepted;
 
     useEffect(() => {
         const evaluateTodayEmotionStatus = () => {
@@ -121,41 +133,6 @@ export default function Layout({ children }: LayoutProps) {
     }, []);
 
     useEffect(() => {
-        if (!currentClient) {
-            setIsTermsAccepted(true);
-            return;
-        }
-
-        ensurePsycareTermsAcceptanceRecord(
-            currentClient.id,
-            currentClient.fullName,
-        );
-
-        const refreshTermsStatus = () => {
-            setIsTermsAccepted(hasPsycareTermsBeenAccepted(currentClient.id));
-        };
-
-        refreshTermsStatus();
-        window.addEventListener('storage', refreshTermsStatus);
-        window.addEventListener(
-            PSYCARE_TERMS_ACCEPTANCE_UPDATED_EVENT,
-            refreshTermsStatus,
-        );
-
-        return () => {
-            window.removeEventListener('storage', refreshTermsStatus);
-            window.removeEventListener(
-                PSYCARE_TERMS_ACCEPTANCE_UPDATED_EVENT,
-                refreshTermsStatus,
-            );
-        };
-    }, [currentClient]);
-
-    useEffect(() => {
-        setIsTermsModalOpen(Boolean(currentClient) && !isTermsAccepted);
-    }, [currentClient, isTermsAccepted]);
-
-    useEffect(() => {
         if (!isTermsModalOpen) {
             document.body.style.overflow = '';
             return;
@@ -200,15 +177,16 @@ export default function Layout({ children }: LayoutProps) {
                 termsLabelMs:
                     'Saya telah membaca dan bersetuju dengan terma dan syarat penggunaan PsyCare 2.0.',
                 termsSummary:
-                    'Your terms acceptance will be saved for this mock client so the form will not appear again unless the record is cleared.',
+                    'Your acceptance is recorded against your account and this terms version. You will only be asked again if the terms are updated.',
                 termsSummaryMs:
-                    'Persetujuan terma akan disimpan untuk klien mock ini supaya borang ini tidak akan muncul lagi kecuali rekod dipadamkan.',
+                    'Persetujuan anda direkodkan pada akaun anda dan versi terma ini. Anda hanya akan ditanya semula jika terma dikemas kini.',
                 agreeButton: 'Agree and Continue',
                 agreeButtonMs: 'Setuju dan Teruskan',
                 clientLabel: 'Current Client',
                 termsAcceptedAtLabel: 'Accepted At',
                 termsStored: 'Accepted for current terms version',
                 termsPending: 'Not yet accepted for current terms version',
+                termsVersionLabel: 'Terms version',
             };
         }
 
@@ -241,15 +219,16 @@ export default function Layout({ children }: LayoutProps) {
             termsLabelMs:
                 'I have read and agree to the terms and conditions of using PsyCare 2.0.',
             termsSummary:
-                'Persetujuan terma anda akan disimpan untuk klien mock ini supaya borang ini tidak akan muncul lagi kecuali rekod dipadamkan.',
+                'Persetujuan anda direkodkan pada akaun anda dan versi terma ini. Anda hanya akan ditanya semula jika terma dikemas kini.',
             termsSummaryMs:
-                'Your terms acceptance will be saved for this mock client so the form will not appear again unless the record is cleared.',
+                'Your acceptance is recorded against your account and this terms version. You will only be asked again if the terms are updated.',
             agreeButton: 'Setuju dan Teruskan',
             agreeButtonMs: 'Agree and Continue',
             clientLabel: 'Klien Semasa',
             termsAcceptedAtLabel: 'Masa Terima',
             termsStored: 'Diterima untuk versi terma semasa',
             termsPending: 'Belum diterima untuk versi terma semasa',
+            termsVersionLabel: 'Versi terma',
         };
     }, [language]);
 
@@ -268,23 +247,30 @@ export default function Layout({ children }: LayoutProps) {
     };
 
     const handleTermsAccept = () => {
-        if (!currentClient || !isTermsConfirmed) {
+        if (!isTermsConfirmed || isAcceptingTerms) {
             return;
         }
 
-        savePsycareTermsAcceptance(currentClient.id, currentClient.fullName);
-        setActionMessage(
-            language === 'en'
-                ? 'Terms accepted. You can now use PsyCare 2.0.'
-                : 'Terma diterima. Anda kini boleh menggunakan PsyCare 2.0.',
-        );
-        setIsTermsConfirmed(false);
-        setIsTermsModalOpen(false);
-    };
+        setIsAcceptingTerms(true);
 
-    const termsAcceptanceRecord = currentClient
-        ? getPsycareTermsAcceptanceRecord(currentClient.id)
-        : null;
+        router.post(
+            '/psycare/terms/accept',
+            { accepted: true },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setJustAccepted(true);
+                    setIsTermsConfirmed(false);
+                    setActionMessage(
+                        language === 'en'
+                            ? 'Terms accepted. You can now use PsyCare 2.0.'
+                            : 'Terma diterima. Anda kini boleh menggunakan PsyCare 2.0.',
+                    );
+                },
+                onFinish: () => setIsAcceptingTerms(false),
+            },
+        );
+    };
 
     return (
         <div className="min-h-screen bg-gray-50 text-gray-800">
@@ -468,10 +454,10 @@ export default function Layout({ children }: LayoutProps) {
                                             {copy.clientLabel}
                                         </p>
                                         <p className="mt-1 text-sm font-semibold text-gray-900">
-                                            {currentClient?.fullName ?? '-'}
+                                            {termsAcceptance?.clientName ?? '-'}
                                         </p>
                                         <p className="text-sm text-gray-600">
-                                            {currentClient?.nationalId ?? '-'}
+                                            {termsAcceptance?.clientIdentifier ?? '-'}
                                         </p>
                                     </div>
                                     <div>
@@ -479,16 +465,20 @@ export default function Layout({ children }: LayoutProps) {
                                             {copy.termsAcceptedAtLabel}
                                         </p>
                                         <p className="mt-1 text-sm font-semibold text-gray-900">
-                                            {termsAcceptanceRecord?.acceptedAt
+                                            {termsAcceptance?.acceptedAt
                                                 ? new Date(
-                                                      termsAcceptanceRecord.acceptedAt,
+                                                      termsAcceptance.acceptedAt,
                                                   ).toLocaleString()
                                                 : '-'}
                                         </p>
                                         <p className="text-sm text-gray-600">
-                                            {isTermsAccepted
+                                            {termsAcceptance?.accepted
                                                 ? copy.termsStored
                                                 : copy.termsPending}
+                                        </p>
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            {copy.termsVersionLabel}:{' '}
+                                            {termsAcceptance?.version ?? '-'}
                                         </p>
                                     </div>
                                 </div>
@@ -537,10 +527,10 @@ export default function Layout({ children }: LayoutProps) {
                                 <button
                                     type="button"
                                     onClick={handleTermsAccept}
-                                    disabled={!isTermsConfirmed}
+                                    disabled={!isTermsConfirmed || isAcceptingTerms}
                                     className="rounded-lg bg-red-800 px-5 py-2 text-sm font-semibold text-white hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    {copy.agreeButton}
+                                    {isAcceptingTerms ? '…' : copy.agreeButton}
                                 </button>
                             </div>
                         </div>

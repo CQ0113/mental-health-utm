@@ -13,7 +13,10 @@ class DeclarationVerificationEvent extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['declaration_id', 'verifier_user_id', 'action', 'note'];
+    // `created_at` is fillable on purpose: this table has no `updated_at`, so
+    // Eloquent timestamps are off and the value has to be passed in rather
+    // than leaning on the column's DB-level default.
+    protected $fillable = ['created_at', 'declaration_id', 'verifier_user_id', 'action', 'note'];
 
     protected function casts(): array
     {

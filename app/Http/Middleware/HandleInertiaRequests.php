@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\TermsAcceptanceService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -45,6 +46,11 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
             ],
+            // Drives the blocking first-use Terms pop-up in the client
+            // layout. Null for anyone who isn't a client with a profile, so
+            // the pop-up never appears in the admin/counsellor portals.
+            'termsAcceptance' => fn () => app(TermsAcceptanceService::class)
+                ->presentFor($request->user()?->client),
         ];
     }
 }
