@@ -1,7 +1,9 @@
 <?php
 
-test('returns a successful response', function () {
-    $response = $this->get(route('home'));
+test('root redirects toward the client portal, which requires login', function () {
+    $this->get(route('home'))->assertRedirect('/psycare');
 
-    $response->assertOk();
+    $this->get('/psycare')->assertRedirect('/psycare/dashboard');
+
+    $this->get('/psycare/dashboard')->assertRedirect('/login');
 });

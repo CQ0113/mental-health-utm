@@ -1,4 +1,4 @@
-import { Link, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import type {ReactNode } from 'react';
 
 type CounsellorLayoutProps = {
@@ -48,29 +48,18 @@ export default function CounsellorLayout({ title, subtitle, children }: Counsell
             </aside>
 
             <div className="pl-72">
-                <header className="sticky top-0 z-20 border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-                    <p className="text-sm text-gray-500">{subtitle}</p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                        <Link
-                            href="/psycare/dashboard"
-                            className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                            Client Portal
-                        </Link>
-                        <Link
-                            href="/admin/dashboard"
-                            className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                            Admin Portal
-                        </Link>
-                        <Link
-                            href="/counsellor/dashboard"
-                            className="rounded border border-slate-300 bg-slate-50 px-2 py-1 font-medium text-slate-700"
-                        >
-                            Counsellor Portal
-                        </Link>
+                <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+                        <p className="text-sm text-gray-500">{subtitle}</p>
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => router.post('/logout')}
+                        className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                    >
+                        Log Out
+                    </button>
                 </header>
                 <main className="p-6">{children}</main>
             </div>

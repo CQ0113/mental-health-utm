@@ -1,0 +1,281 @@
+[
+  {
+    "id": "01-client-terms-acceptance",
+    "title": "Client Portal - Terms Acceptance Modal",
+    "route": "/psycare/dashboard",
+    "coverage": "Initial client access and terms acceptance before using PsyCare.",
+    "file": "01-client-terms-acceptance.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\01-client-terms-acceptance.png",
+    "url": "http://localhost:8001/psycare/dashboard"
+  },
+  {
+    "id": "02-client-dashboard-emotion",
+    "title": "Client Portal - Dashboard Emotion Tracker",
+    "route": "/psycare/dashboard",
+    "coverage": "CT01 Log Daily Emotion, CT03 View Emotion History, dashboard entry point.",
+    "file": "02-client-dashboard-emotion.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\02-client-dashboard-emotion.png",
+    "url": "http://localhost:8001/psycare/dashboard"
+  },
+  {
+    "id": "03-client-ai-chatbot-risk",
+    "title": "Client Portal - AI Chatbot Open With Risk Detection",
+    "route": "/psycare/dashboard",
+    "coverage": "CT02 Chat with AI Counsellor and automatic risk flag trigger.",
+    "file": "03-client-ai-chatbot-risk.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\03-client-ai-chatbot-risk.png",
+    "url": "http://localhost:8001/psycare/dashboard"
+  },
+  {
+    "id": "04-client-services-declaration",
+    "title": "Client Portal - Services, Profile And Declaration",
+    "route": "/psycare/perkhidmatan",
+    "coverage": "UM03 Manage User Profiles, DC01 View Declaration Form, DC02 Submit Declaration.",
+    "file": "04-client-services-declaration.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\04-client-services-declaration.png",
+    "url": "http://localhost:8001/psycare/perkhidmatan"
+  },
+  {
+    "id": "05-client-appointment-entry",
+    "title": "Client Portal - Appointment Request Entry",
+    "route": "/psycare/permohonan",
+    "coverage": "AS01 Book Appointment entry choice between new booking and follow-up.",
+    "file": "05-client-appointment-entry.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\05-client-appointment-entry.png",
+    "url": "http://localhost:8001/psycare/permohonan"
+  },
+  {
+    "id": "06-client-new-appointment-form",
+    "title": "Client Portal - Smart Appointment Form",
+    "route": "/psycare/permohonan",
+    "coverage": "AS01 Book Appointment and AS03 Book New Appointment form fields, slot selection, declaration notice.",
+    "file": "06-client-new-appointment-form.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\06-client-new-appointment-form.png",
+    "url": "http://localhost:8001/psycare/permohonan"
+  },
+  {
+    "id": "07-client-appointment-records",
+    "title": "Client Portal - Appointment Records",
+    "route": "/psycare/rekod-temujanji",
+    "coverage": "AS02 Request Follow-Up appointment records and TA01 join-session entry point.",
+    "file": "07-client-appointment-records.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\07-client-appointment-records.png",
+    "url": "http://localhost:8001/psycare/rekod-temujanji"
+  },
+  {
+    "id": "08-client-follow-up-form",
+    "title": "Client Portal - Follow-Up Appointment Form",
+    "route": "/psycare/rekod-temujanji",
+    "coverage": "AS02 Request Follow-Up and linked AS03 follow-up booking form.",
+    "file": "08-client-follow-up-form.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\08-client-follow-up-form.png",
+    "url": "http://localhost:8001/psycare/permohonan?mode=followup&reference=PSY-2026-00012"
+  },
+  {
+    "id": "09-client-psychometric-test",
+    "title": "Client Portal - Psychometric Self-Assessment",
+    "route": "/psycare/ujian-psikometrik",
+    "coverage": "SA01 Take Psychometric Test with available tests, questions, answers, draft and submit controls.",
+    "file": "09-client-psychometric-test.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\09-client-psychometric-test.png",
+    "url": "http://localhost:8001/psycare/ujian-psikometrik"
+  },
+  {
+    "id": "10-client-resource-library",
+    "title": "Client Portal - Resource Library",
+    "route": "/psycare/resource-library",
+    "coverage": "ER02 Access Learning Materials, search, filter, and open resource behavior.",
+    "file": "10-client-resource-library.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\10-client-resource-library.png",
+    "url": "http://localhost:8001/psycare/resource-library"
+  },
+  {
+    "id": "11-client-support-forum",
+    "title": "Client Portal - Peer Support Forum",
+    "route": "/psycare/forum-sokongan",
+    "coverage": "PS01 Submit Forum Post, category selection, safety review, and post queue feedback.",
+    "file": "11-client-support-forum.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\11-client-support-forum.png",
+    "url": "http://localhost:8001/psycare/forum-sokongan"
+  },
+  {
+    "id": "12-admin-dashboard",
+    "title": "Admin Portal - Dashboard",
+    "route": "/admin/dashboard",
+    "coverage": "Admin entry point for appointment queue, resources, psychometric tests, and moderation work.",
+    "file": "12-admin-dashboard.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\12-admin-dashboard.png",
+    "url": "http://localhost:8001/admin/dashboard"
+  },
+  {
+    "id": "13-admin-service-management",
+    "title": "Admin Portal - Service Management",
+    "route": "/admin/service",
+    "coverage": "Appointment service and counselling service setup used by scheduling flows.",
+    "file": "13-admin-service-management.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\13-admin-service-management.png",
+    "url": "http://localhost:8001/admin/service"
+  },
+  {
+    "id": "14-admin-counsellor-ppsi",
+    "title": "Admin Portal - Counsellor PPsi Management",
+    "route": "/admin/counsellor-ppsi",
+    "coverage": "UM01 Onboard Counsellor and counsellor profile maintenance.",
+    "file": "14-admin-counsellor-ppsi.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\14-admin-counsellor-ppsi.png",
+    "url": "http://localhost:8001/admin/counsellor-ppsi"
+  },
+  {
+    "id": "15-admin-counsellor-timetable",
+    "title": "Admin Portal - Counsellor Timetable",
+    "route": "/admin/counsellor-timetable",
+    "coverage": "Counsellor timetable planning related to appointment slot setup.",
+    "file": "15-admin-counsellor-timetable.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\15-admin-counsellor-timetable.png",
+    "url": "http://localhost:8001/admin/counsellor-timetable"
+  },
+  {
+    "id": "16-admin-client-information",
+    "title": "Admin Portal - Client Information",
+    "route": "/admin/client-information",
+    "coverage": "UM02 Find Client Profile and UM03 Manage User Profiles.",
+    "file": "16-admin-client-information.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\16-admin-client-information.png",
+    "url": "http://localhost:8001/admin/client-information"
+  },
+  {
+    "id": "17-admin-appointment-queue",
+    "title": "Admin Portal - Appointment Queue",
+    "route": "/admin/appointments",
+    "coverage": "AS07 Verify Appointment, admin/counsellor review queue, and attendance access.",
+    "file": "17-admin-appointment-queue.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\17-admin-appointment-queue.png",
+    "url": "http://localhost:8001/admin/appointments"
+  },
+  {
+    "id": "18-admin-appointment-review-modal",
+    "title": "Admin Portal - Appointment Review Modal",
+    "route": "/admin/appointments",
+    "coverage": "AS07 Verify Appointment review details, submitted client form snapshot, and approval controls.",
+    "file": "18-admin-appointment-review-modal.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\18-admin-appointment-review-modal.png",
+    "url": "http://localhost:8001/admin/appointments"
+  },
+  {
+    "id": "19-admin-appointment-attendance-modal",
+    "title": "Admin Portal - Attendance Record Modal",
+    "route": "/admin/appointments",
+    "coverage": "TA02 Record Attendance, TA03 Scan Physical QR Code, TA04 Auto-log Attendance overview.",
+    "file": "19-admin-appointment-attendance-modal.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\19-admin-appointment-attendance-modal.png",
+    "url": "http://localhost:8001/admin/appointments"
+  },
+  {
+    "id": "20-slot-manager",
+    "title": "Admin/Counsellor Portal - Appointment Slot Manager",
+    "route": "/counsellor/slots",
+    "coverage": "AS04 Manage Slots, AS05 Bulk Generate Slots, AS06 Import CSV Timetable.",
+    "file": "20-slot-manager.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\20-slot-manager.png",
+    "url": "http://localhost:8001/counsellor/slots"
+  },
+  {
+    "id": "21-slot-bulk-summary",
+    "title": "Admin/Counsellor Portal - Slot Bulk Generation Summary",
+    "route": "/counsellor/slots",
+    "coverage": "AS05 Bulk Generate Slots and draft slot change summary.",
+    "file": "21-slot-bulk-summary.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\21-slot-bulk-summary.png",
+    "url": "http://localhost:8001/counsellor/slots"
+  },
+  {
+    "id": "22-admin-psychometric-materials",
+    "title": "Admin Portal - Psychometric Materials",
+    "route": "/admin/materials",
+    "coverage": "SA03 Manage Test, upload PDF, generate tests, and review current tests.",
+    "file": "22-admin-psychometric-materials.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\22-admin-psychometric-materials.png",
+    "url": "http://localhost:8001/admin/materials"
+  },
+  {
+    "id": "23-admin-learning-materials",
+    "title": "Admin Portal - Learning Materials",
+    "route": "/admin/learning-materials",
+    "coverage": "ER01 Manage Resource Library and upload learning materials.",
+    "file": "23-admin-learning-materials.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\23-admin-learning-materials.png",
+    "url": "http://localhost:8001/admin/learning-materials"
+  },
+  {
+    "id": "24-admin-forum-moderation",
+    "title": "Admin Portal - Forum Moderation",
+    "route": "/admin/forum",
+    "coverage": "PS02 Moderate Forum, filter posts, confirm actions, and moderation log.",
+    "file": "24-admin-forum-moderation.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\24-admin-forum-moderation.png",
+    "url": "http://localhost:8001/admin/forum"
+  },
+  {
+    "id": "25-counsellor-dashboard",
+    "title": "Counsellor Portal - Dashboard",
+    "route": "/counsellor/dashboard",
+    "coverage": "Counsellor entry point for appointments, caseload, tasks, and psychometric results.",
+    "file": "25-counsellor-dashboard.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\25-counsellor-dashboard.png",
+    "url": "http://localhost:8001/counsellor/dashboard"
+  },
+  {
+    "id": "26-counsellor-appointments",
+    "title": "Counsellor Portal - Appointment Records",
+    "route": "/counsellor/appointments",
+    "coverage": "AS07 counsellor review, TA02 attendance access, and follow-up controls.",
+    "file": "26-counsellor-appointments.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\26-counsellor-appointments.png",
+    "url": "http://localhost:8001/counsellor/appointments"
+  },
+  {
+    "id": "27-counsellor-appointment-review-modal",
+    "title": "Counsellor Portal - Appointment Detail Modal",
+    "route": "/counsellor/appointments",
+    "coverage": "AS07 counsellor approval details and submitted form review.",
+    "file": "27-counsellor-appointment-review-modal.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\27-counsellor-appointment-review-modal.png",
+    "url": "http://localhost:8001/counsellor/appointments"
+  },
+  {
+    "id": "28-counsellor-attendance-modal",
+    "title": "Counsellor Portal - Attendance Record Modal",
+    "route": "/counsellor/appointments",
+    "coverage": "TA02 Record Attendance, TA03 QR attendance, and attendance participant editing.",
+    "file": "28-counsellor-attendance-modal.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\28-counsellor-attendance-modal.png",
+    "url": "http://localhost:8001/counsellor/appointments"
+  },
+  {
+    "id": "29-counsellor-caseload",
+    "title": "Counsellor Portal - Flagged Client Caseload",
+    "route": "/counsellor/caseload",
+    "coverage": "CT04 Investigate Flagged Client and CT03 emotion history from counsellor caseload.",
+    "file": "29-counsellor-caseload.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\29-counsellor-caseload.png",
+    "url": "http://localhost:8001/counsellor/caseload"
+  },
+  {
+    "id": "30-counsellor-tasks",
+    "title": "Counsellor Portal - Intervention Tasks",
+    "route": "/counsellor/tasks",
+    "coverage": "CT04 create intervention task and track counsellor follow-up work.",
+    "file": "30-counsellor-tasks.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\30-counsellor-tasks.png",
+    "url": "http://localhost:8001/counsellor/tasks"
+  },
+  {
+    "id": "31-counsellor-psychometric-results",
+    "title": "Counsellor Portal - Psychometric Results Triage",
+    "route": "/counsellor/assessments",
+    "coverage": "SA02 View Triage Dashboard and submission review.",
+    "file": "31-counsellor-psychometric-results.png",
+    "path": "C:\\Users\\cheng\\mental-health-utm\\docs\\real-ui-captures\\31-counsellor-psychometric-results.png",
+    "url": "http://localhost:8001/counsellor/assessments"
+  }
+]

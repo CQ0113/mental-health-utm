@@ -2,15 +2,18 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\AccountStatus;
+use App\Enums\UserRole;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, HasUuids, Notifiable;
 
     /**
      * The attributes that are mass assignable.
@@ -20,7 +23,9 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
-        'password',
+        'password_hash',
+        'role',
+        'status',
     ];
 
     /**
@@ -29,7 +34,7 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $hidden = [
-        'password',
+        'password_hash',
         'remember_token',
     ];
 
@@ -42,7 +47,45 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'role' => UserRole::class,
+            'status' => AccountStatus::class,
         ];
+    }
+
+    /**
+     * The schema stores the hashed password in `password_hash`, not
+     * Laravel's default `password` column, so point the auth guard at it.
+     * `Auth::attempt(['email' => ..., 'password' => ...])` still works
+     * unchanged because it only ever reads via this accessor — write
+     * `password_hash` directly (e.g. `Hash::make(...)`) when creating users.
+     */
+    public function getAuthPassword(): ?string
+    {
+        return $this->password_hash;
+    }
+
+    public function client(): HasOne
+    {
+        return $this->hasOne(Client::class);
+    }
+
+    public function counsellor(): HasOne
+    {
+        return $this->hasOne(Counsellor::class);
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === UserRole::Admin;
+    }
+
+    public function isClient(): bool
+    {
+        return $this->role === UserRole::Client;
+    }
+
+    public function isCounsellor(): bool
+    {
+        return $this->role === UserRole::Counselor;
     }
 }

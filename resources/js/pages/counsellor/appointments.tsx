@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import CounsellorLayout from '@/components/counsellor/Layout';
 import { useConfirmDialog } from '@/components/shared/useConfirmDialog';
@@ -7,7 +7,6 @@ import { mockClientProfiles } from '@/lib/mock-clients';
 import { getAdminManagedSchedule } from '@/lib/psycare-admin-slots';
 import type { AdminScheduleDay, SessionType } from '@/lib/psycare-admin-slots';
 import ReportModal from './ReportModal';
-import { pastAppointments } from '@/lib/psycare-appointment-records';
 import {
     ATTENDANCE_UPDATED_EVENT,
     getAttendanceSessionByRef,
@@ -16,14 +15,30 @@ import {
 } from '@/lib/psycare-attendance';
 import type { AttendanceSession, AttendanceStatus } from '@/lib/psycare-attendance';
 
-const getStatusBadgeClass = (
-    status: 'open' | 'counsellor-reviewing' | 'approved' | 'on-going' | 'complete' | 'follow-up' | 'closed',
-) => {
-    if (status === 'open') {
-        return 'bg-indigo-100 text-indigo-800';
+type AppointmentStatusValue =
+    | 'draft'
+    | 'pending'
+    | 'needs_review'
+    | 'counsellor_reviewing'
+    | 'approved'
+    | 'on_going'
+    | 'complete'
+    | 'completed'
+    | 'follow_up'
+    | 'closed';
+
+// Statuses at or past the counsellor's AS07 approval — everything earlier
+// (pending, needs_review, counsellor_reviewing) still counts as PENDING for
+// the counsellor stage of the approval workflow.
+const isCounsellorApproved = (status: AppointmentStatusValue) =>
+    ['approved', 'on_going', 'complete', 'completed', 'follow_up', 'closed'].includes(status);
+
+const getStatusBadgeClass = (status: AppointmentStatusValue) => {
+    if (status === 'pending' || status === 'needs_review') {
+        return 'bg-amber-100 text-amber-800';
     }
 
-    if (status === 'counsellor-reviewing') {
+    if (status === 'counsellor_reviewing') {
         return 'bg-sky-100 text-sky-800';
     }
 
@@ -31,28 +46,137 @@ const getStatusBadgeClass = (
         return 'bg-indigo-100 text-indigo-800';
     }
 
-    if (status === 'on-going') {
+    if (status === 'on_going') {
         return 'bg-purple-100 text-purple-800';
     }
 
-    if (status === 'complete') {
+    if (status === 'complete' || status === 'completed') {
         return 'bg-emerald-100 text-emerald-800';
     }
 
-    if (status === 'follow-up') {
+    if (status === 'follow_up') {
         return 'bg-orange-100 text-orange-800';
     }
 
     return 'bg-gray-200 text-gray-700';
 };
 
-type CounsellorAppointmentItem = (typeof pastAppointments)[number] & {
+const declarationStatusLabels: Record<string, string> = {
+    draft: 'DRAFT',
+    submitted: 'SUBMITTED',
+    pending_verification: 'PENDING VERIFICATION',
+    verified: 'VERIFIED',
+    correction_required: 'CORRECTION REQUIRED',
+    rejected: 'REJECTED',
+};
+
+const declarationStatusBadgeClass = (status: string) => {
+    if (status === 'verified') return 'bg-emerald-100 text-emerald-800';
+    if (status === 'correction_required' || status === 'rejected') return 'bg-amber-100 text-amber-800';
+    if (status === 'submitted' || status === 'pending_verification') return 'bg-sky-100 text-sky-800';
+    return 'bg-gray-200 text-gray-700';
+};
+
+// Real backend shape (Counsellor\AppointmentController@present), normalized
+// into this page's existing `date`/`slot`/`counselor` field names. AS07 is
+// the only part of this page wired to the database (queue list + the
+// "Approve" action below) — Open/Complete/Final-Outcome, meeting-link
+// generation, attendance, and the walk-in "Create Appointment" modal belong
+// to later phases (Phase 4 Telemedicine & Attendance) or aren't in any use
+// case at all, and stay on their existing mock content.
+type BackendAppointment = {
+    id: string;
+    referenceNo: string;
+    clientName: string;
+    sessionType: SessionType;
+    appointmentType: string;
+    preferredDate: string | null;
+    slotLabel: string;
+    location: string;
+    counselorName: string;
+    appointmentNeed: string | null;
+    issueSummary: string | null;
+    attendedBefore: boolean;
+    status: AppointmentStatusValue;
+    adminReviewNote: string | null;
+    adminReviewedAt: string | null;
+    counsellorReviewNote: string | null;
+    counsellorReviewedAt: string | null;
+    meetingLink: string | null;
+    declaration: ClientDeclaration | null;
+};
+
+/**
+ * DC03 — the client's profile-level Client Information Declaration, shown
+ * here because a counsellor has no Client Information page of their own.
+ * Null until the client submits one.
+ */
+type DeclarationStatus =
+    | 'draft'
+    | 'submitted'
+    | 'pending_verification'
+    | 'verified'
+    | 'correction_required'
+    | 'rejected';
+
+type ClientDeclaration = {
+    id: string;
+    declarationText: string;
+    isChecked: boolean;
+    status: DeclarationStatus;
+    submittedAt: string | null;
+    verifiedAt: string | null;
+    verifiedByName: string | null;
+    correctionNote: string | null;
+};
+
+type CounsellorAppointmentItem = {
+    id: string;
+    referenceNo: string;
+    date: string;
+    slot: string;
+    counselor: string;
+    sessionType: SessionType;
+    status: AppointmentStatusValue;
     counsellorContinuationNeeded: boolean | null;
     clientName: string;
     appointmentType: string;
     sessionMode: 'individual' | 'group';
     location: string;
+    appointmentNeed: string | null;
+    issueSummary: string | null;
+    attendedBefore: boolean;
+    adminReviewNote: string | null;
+    adminReviewedAt: string | null;
+    counsellorReviewNote: string | null;
+    counsellorReviewedAt: string | null;
+    meetingLink: string | null;
+    declaration: ClientDeclaration | null;
 };
+
+const normalizeAppointment = (appointment: BackendAppointment): CounsellorAppointmentItem => ({
+    id: appointment.id,
+    referenceNo: appointment.referenceNo,
+    date: appointment.preferredDate ?? '-',
+    slot: appointment.slotLabel,
+    counselor: appointment.counselorName,
+    sessionType: appointment.sessionType,
+    status: appointment.status,
+    counsellorContinuationNeeded: null,
+    clientName: appointment.clientName,
+    appointmentType: appointment.appointmentType,
+    sessionMode: 'individual',
+    location: appointment.location,
+    appointmentNeed: appointment.appointmentNeed,
+    issueSummary: appointment.issueSummary,
+    attendedBefore: appointment.attendedBefore,
+    adminReviewNote: appointment.adminReviewNote,
+    adminReviewedAt: appointment.adminReviewedAt,
+    counsellorReviewNote: appointment.counsellorReviewNote,
+    counsellorReviewedAt: appointment.counsellorReviewedAt,
+    meetingLink: appointment.meetingLink,
+    declaration: appointment.declaration,
+});
 
 type AppointmentCreateForm = {
     sessionMode: 'individual' | 'group';
@@ -66,18 +190,6 @@ type AppointmentCreateForm = {
     sessionType: SessionType;
     location: string;
     counselorName: string;
-};
-
-type SubmittedClientForm = {
-    clientName: string;
-    clientTypeLabel: 'PELAJAR' | 'STAF' | 'GROUP';
-    matrixOrWorkerNo: string;
-    faculty: string;
-    appointmentNeed: string;
-    attendedBefore: 'YA' | 'TIDAK';
-    attachmentDescription: string;
-    applicantNote: string;
-    submittedAt: string;
 };
 
 const toIsoDate = (date: Date) => {
@@ -166,57 +278,21 @@ const generateOnlineMeetingLink = (referenceNo: string) => {
     return `https://meet.psycare.local/session/${normalizedReference}?token=${token}`;
 };
 
-const buildSubmittedFormByReference = (appointments: CounsellorAppointmentItem[]) =>
-    appointments.reduce<Record<string, SubmittedClientForm>>((accumulator, appointment, index) => {
-        const matchedClient = mockClientProfiles[index % mockClientProfiles.length];
+type PageProps = {
+    appointments: BackendAppointment[];
+};
 
-        accumulator[appointment.referenceNo] = {
-            clientName: matchedClient?.fullName ?? 'Assigned Client',
-            clientTypeLabel: matchedClient?.clientType === 'staff' ? 'STAF' : 'PELAJAR',
-            matrixOrWorkerNo:
-                matchedClient?.clientType === 'staff'
-                    ? matchedClient.workerNo ?? '-'
-                    : matchedClient?.matrixNo ?? '-',
-            faculty: matchedClient?.faculty ?? '-',
-            appointmentNeed: 'Tekanan akademik dan pengurusan emosi',
-            attendedBefore: 'TIDAK',
-            attachmentDescription: 'Lampiran sokongan berkaitan isu akademik.',
-            applicantNote: 'Mohon slot selepas jam 10 pagi jika boleh.',
-            submittedAt: appointment.date,
-        };
-
-        return accumulator;
-    }, {});
-
-export default function CounsellorAppointmentsPage() {
+export default function CounsellorAppointmentsPage({ appointments: serverAppointments }: PageProps) {
     const { confirm, confirmDialog } = useConfirmDialog();
     const [adminSchedule] = useState<AdminScheduleDay[]>(() => getAdminManagedSchedule());
     const [appointments, setAppointments] = useState<CounsellorAppointmentItem[]>(() =>
-        pastAppointments.map((appointment, idx) => {
-            // For now, assign a mock client in round-robin
-            const client = mockClientProfiles[idx % mockClientProfiles.length];
-            return {
-                ...appointment,
-                clientName: client?.fullName ?? 'Assigned Client',
-                appointmentType: 'SUSULAN', // or 'BARU', mock for now
-                sessionMode: 'individual', // or 'group', mock for now
-                location: appointment.sessionType === 'online' ? 'ONLINE' : 'PUSAT KAUNSELING (JB)',
-                counsellorContinuationNeeded:
-                    appointment.status === 'follow-up'
-                        ? true
-                        : appointment.status === 'closed'
-                        ? false
-                        : null,
-            };
-        }),
+        serverAppointments.map(normalizeAppointment),
     );
     const [viewingAppointment, setViewingAppointment] = useState<CounsellorAppointmentItem | null>(null);
     const [viewingAttendanceRef, setViewingAttendanceRef] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [viewingReportRef, setViewingReportRef] = useState<string | null>(null);
-    const [statusFilter, setStatusFilter] = useState<
-        'all' | 'counsellor-reviewing' | 'approved' | 'on-going' | 'complete' | 'follow-up' | 'closed'
-    >('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | AppointmentStatusValue>('all');
     const [sessionTypeFilter, setSessionTypeFilter] = useState<'all' | 'online' | 'physical'>('all');
     const [locationFilter, setLocationFilter] = useState<string>('all');
     const [isCreateAppointmentOpen, setIsCreateAppointmentOpen] = useState(false);
@@ -241,50 +317,21 @@ export default function CounsellorAppointmentsPage() {
     );
     const [selectedSlotId, setSelectedSlotId] = useState('');
     const [flashMessage, setFlashMessage] = useState('');
+    const [isReviewing, setIsReviewing] = useState(false);
+    // DC03 — correction note for the declaration shown in the review modal.
+    const [declarationNote, setDeclarationNote] = useState('');
+    const [isVerifyingDeclaration, setIsVerifyingDeclaration] = useState(false);
     const [attendanceByRef, setAttendanceByRef] = useState<Record<string, AttendanceSession>>(() =>
-        toAttendanceMap(
-            pastAppointments.map((appointment, idx) => {
-                const client = mockClientProfiles[idx % mockClientProfiles.length];
-                return {
-                    ...appointment,
-                    clientName: client?.fullName ?? 'Assigned Client',
-                    appointmentType: 'SUSULAN',
-                    sessionMode: 'individual',
-                    location: appointment.sessionType === 'online' ? 'ONLINE' : 'PUSAT KAUNSELING (JB)',
-                    counsellorContinuationNeeded:
-                        appointment.status === 'follow-up'
-                            ? true
-                            : appointment.status === 'closed'
-                            ? false
-                            : null,
-                };
-            }),
-        ),
+        toAttendanceMap(serverAppointments.map(normalizeAppointment)),
     );
     const [counsellorNoteByRef, setCounsellorNoteByRef] = useState<Record<string, string>>({});
     const [meetingLinkByRef, setMeetingLinkByRef] = useState<Record<string, string>>({});
-    const [submittedFormByReference, setSubmittedFormByReference] = useState<
-        Record<string, SubmittedClientForm>
-    >(() =>
-        buildSubmittedFormByReference(
-            pastAppointments.map((appointment, idx) => {
-                const client = mockClientProfiles[idx % mockClientProfiles.length];
-                return {
-                    ...appointment,
-                    clientName: client?.fullName ?? 'Assigned Client',
-                    appointmentType: 'SUSULAN',
-                    sessionMode: 'individual',
-                    location: appointment.sessionType === 'online' ? 'ONLINE' : 'PUSAT KAUNSELING (JB)',
-                    counsellorContinuationNeeded:
-                        appointment.status === 'follow-up'
-                            ? true
-                            : appointment.status === 'closed'
-                            ? false
-                            : null,
-                };
-            }),
-        ),
-    );
+
+    // Re-sync from the server after every Inertia visit (e.g. after the
+    // Approve action's redirect-back refreshes this page's props).
+    useEffect(() => {
+        setAppointments(serverAppointments.map(normalizeAppointment));
+    }, [serverAppointments]);
 
     const getSlotsForDate = useCallback((isoDate: string) => {
         const configuredDay = adminSchedule.find((day) => day.date === isoDate);
@@ -436,7 +483,9 @@ export default function CounsellorAppointmentsPage() {
             return;
         }
 
+        // Not persisted — see the scope note on BackendAppointment above.
         const newAppointment: CounsellorAppointmentItem = {
+            id: createForm.referenceNo.trim(),
             referenceNo: createForm.referenceNo.trim(),
             date: appointmentDate,
             slot: selectedSlot.label,
@@ -448,6 +497,15 @@ export default function CounsellorAppointmentsPage() {
             appointmentType: createForm.appointmentType,
             sessionMode: createForm.sessionMode,
             location: createForm.sessionType === 'online' ? 'ONLINE' : createForm.location,
+            appointmentNeed: createForm.purposeNote.trim() || null,
+            issueSummary: null,
+            attendedBefore: false,
+            adminReviewNote: null,
+            adminReviewedAt: null,
+            counsellorReviewNote: null,
+            counsellorReviewedAt: null,
+            meetingLink: null,
+            declaration: null,
         };
 
         setAppointments((current) => [newAppointment, ...current]);
@@ -484,33 +542,6 @@ export default function CounsellorAppointmentsPage() {
                 newAppointment.referenceNo,
                 resolvedClientName,
             ),
-        }));
-
-        const matchedClient = mockClientProfiles.find((client) => client.id === createForm.clientId);
-        setSubmittedFormByReference((current) => ({
-            ...current,
-            [newAppointment.referenceNo]: {
-                clientName: resolvedClientName,
-                clientTypeLabel:
-                    createForm.sessionMode === 'group'
-                        ? 'GROUP'
-                        : matchedClient?.clientType === 'staff'
-                          ? 'STAF'
-                          : 'PELAJAR',
-                matrixOrWorkerNo:
-                    createForm.sessionMode === 'group'
-                        ? '-'
-                        : matchedClient?.clientType === 'staff'
-                          ? matchedClient.workerNo ?? '-'
-                          : matchedClient?.matrixNo ?? '-',
-                faculty: createForm.sessionMode === 'group' ? '-' : matchedClient?.faculty ?? '-',
-                appointmentNeed:
-                    createForm.purposeNote.trim() || 'Temujanji dibuat melalui kaunselor.',
-                attendedBefore: 'TIDAK',
-                attachmentDescription: 'Lampiran dikemaskini oleh pemohon.',
-                applicantNote: 'Permohonan diterima melalui aliran kaunselor.',
-                submittedAt: appointmentDate,
-            },
         }));
 
         setIsCreateAppointmentOpen(false);
@@ -553,7 +584,10 @@ export default function CounsellorAppointmentsPage() {
         return () => window.removeEventListener(ATTENDANCE_UPDATED_EVENT, handleAttendanceRefresh);
     }, [appointments]);
 
-    const handleCounsellorApprove = async (referenceNo: string) => {
+    // AS07 AF4 — Counsellor's final approval (real backend call), only
+    // available once Admin has moved the request to needs_review/
+    // counsellor_reviewing (EF3, enforced server-side too).
+    const handleCounsellorApprove = async (appointmentId: string, referenceNo: string) => {
         const approved = await confirm({
             title: 'Approve Appointment',
             message: `Approve appointment ${referenceNo} for scheduling?`,
@@ -564,23 +598,69 @@ export default function CounsellorAppointmentsPage() {
             return;
         }
 
-        setAppointments((current) =>
-            current.map((appointment) =>
-                appointment.referenceNo === referenceNo && appointment.status === 'counsellor-reviewing'
-                    ? {
-                          ...appointment,
-                          status: 'approved',
-                      }
-                    : appointment,
-            ),
+        setIsReviewing(true);
+
+        router.patch(
+            `/counsellor/appointments/${appointmentId}/review`,
+            { note: counsellorNoteByRef[referenceNo] ?? '' },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setViewingAppointment(null);
+                    setFlashMessage(`Appointment ${referenceNo} approved.`);
+                },
+                onError: (errors) => {
+                    setFlashMessage(Object.values(errors)[0] ?? 'Could not approve this appointment.');
+                },
+                onFinish: () => setIsReviewing(false),
+            },
         );
-        setViewingAppointment((current) =>
-            current && current.referenceNo === referenceNo
-                ? {
-                      ...current,
-                      status: 'approved',
-                  }
-                : current,
+    };
+
+    // DC03 AF1 — verify the client's declaration from the appointment under
+    // review. Guarded server-side as well (EF1/EF2).
+    const handleVerifyDeclaration = (declarationId: string) => {
+        if (isVerifyingDeclaration) return;
+
+        setIsVerifyingDeclaration(true);
+
+        router.patch(
+            `/counsellor/declarations/${declarationId}/verify`,
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => setFlashMessage('Client declaration verified.'),
+                onError: (errors) =>
+                    setFlashMessage(Object.values(errors)[0] ?? 'Could not verify this declaration.'),
+                onFinish: () => setIsVerifyingDeclaration(false),
+            },
+        );
+    };
+
+    // DC03 AF2 — send it back with a reason the client can act on.
+    const handleRequestDeclarationCorrection = (declarationId: string) => {
+        if (isVerifyingDeclaration) return;
+
+        if (!declarationNote.trim()) {
+            setFlashMessage('Please state what the client needs to correct.');
+            return;
+        }
+
+        setIsVerifyingDeclaration(true);
+
+        router.patch(
+            `/counsellor/declarations/${declarationId}/correction`,
+            { note: declarationNote.trim() },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setDeclarationNote('');
+                    setFlashMessage('Correction requested. The client can resubmit.');
+                },
+                onError: (errors) =>
+                    setFlashMessage(Object.values(errors)[0] ?? 'Could not request a correction.'),
+                onFinish: () => setIsVerifyingDeclaration(false),
+            },
         );
     };
 
@@ -600,7 +680,7 @@ export default function CounsellorAppointmentsPage() {
                 appointment.referenceNo === referenceNo && appointment.status === 'approved'
                     ? {
                           ...appointment,
-                          status: 'on-going',
+                          status: 'on_going',
                       }
                     : appointment,
             ),
@@ -609,7 +689,7 @@ export default function CounsellorAppointmentsPage() {
             current && current.referenceNo === referenceNo
                 ? {
                       ...current,
-                      status: 'on-going',
+                      status: 'on_going',
                   }
                 : current,
         );
@@ -635,7 +715,7 @@ export default function CounsellorAppointmentsPage() {
 
         setAppointments((current) =>
             current.map((appointment) =>
-                appointment.referenceNo === referenceNo && appointment.status === 'on-going'
+                appointment.referenceNo === referenceNo && appointment.status === 'on_going'
                     ? {
                           ...appointment,
                           status: 'complete',
@@ -672,7 +752,7 @@ export default function CounsellorAppointmentsPage() {
                 appointment.referenceNo === referenceNo && appointment.status === 'complete'
                     ? {
                           ...appointment,
-                          status: continuationNeeded ? 'follow-up' : 'closed',
+                          status: continuationNeeded ? 'follow_up' : 'closed',
                           counsellorContinuationNeeded: continuationNeeded,
                       }
                     : appointment,
@@ -682,7 +762,7 @@ export default function CounsellorAppointmentsPage() {
             current && current.referenceNo === referenceNo
                 ? {
                       ...current,
-                      status: continuationNeeded ? 'follow-up' : 'closed',
+                      status: continuationNeeded ? 'follow_up' : 'closed',
                       counsellorContinuationNeeded: continuationNeeded,
                   }
                 : current,
@@ -875,24 +955,20 @@ export default function CounsellorAppointmentsPage() {
                                 value={statusFilter}
                                 onChange={(event) =>
                                     setStatusFilter(
-                                        event.target.value as
-                                            | 'all'
-                                            | 'counsellor-reviewing'
-                                            | 'approved'
-                                            | 'on-going'
-                                            | 'complete'
-                                            | 'follow-up'
-                                            | 'closed',
+                                        event.target.value as 'all' | AppointmentStatusValue,
                                     )
                                 }
                                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-normal text-gray-800 outline-none sm:w-auto"
                             >
                                 <option value="all">All Status</option>
-                                <option value="counsellor-reviewing">Counsellor Reviewing</option>
+                                <option value="pending">Pending</option>
+                                <option value="needs_review">Needs Review</option>
+                                <option value="counsellor_reviewing">Counsellor Reviewing</option>
                                 <option value="approved">Approved</option>
-                                <option value="on-going">On-going</option>
+                                <option value="on_going">On-going</option>
                                 <option value="complete">Complete</option>
-                                <option value="follow-up">Follow-up</option>
+                                <option value="completed">Completed</option>
+                                <option value="follow_up">Follow-up</option>
                                 <option value="closed">Closed</option>
                             </select>
                         </label>
@@ -961,7 +1037,7 @@ export default function CounsellorAppointmentsPage() {
                                                 Attendance
                                             </button>
 
-                                            {(appointment.status === 'follow-up' || appointment.status === 'closed') && (
+                                            {(appointment.status === 'follow_up' || appointment.status === 'closed') && (
                                                 <span
                                                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getContinuationBadgeClass(appointment.counsellorContinuationNeeded)}`}
                                                 >
@@ -1299,9 +1375,7 @@ export default function CounsellorAppointmentsPage() {
                             </div>
                             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                 <p className="text-xs text-gray-500">Client Name</p>
-                                <p className="text-sm font-semibold text-gray-900">
-                                    {submittedFormByReference[viewingAppointment.referenceNo]?.clientName ?? 'Assigned Client'}
-                                </p>
+                                <p className="text-sm font-semibold text-gray-900">{viewingAppointment.clientName}</p>
                             </div>
                             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                 <p className="text-xs text-gray-500">Date</p>
@@ -1325,54 +1399,111 @@ export default function CounsellorAppointmentsPage() {
                             </div>
                         </div>
 
-                        {(() => {
-                            const viewingSubmittedForm = submittedFormByReference[viewingAppointment.referenceNo];
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <h4 className="text-sm font-semibold text-gray-800">Submitted Request Detail</h4>
 
-                            if (!viewingSubmittedForm) {
-                                return null;
-                            }
-
-                            return (
-                                <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                    <h4 className="text-sm font-semibold text-gray-800">Submitted Client Form Snapshot</h4>
-
-                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Client Type</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.clientTypeLabel}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">No. Matrik / No. Pekerja</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.matrixOrWorkerNo}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Faculty / PTJ</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.faculty}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Submitted At</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.submittedAt}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                                            <p className="text-xs text-gray-500">Keperluan Temujanji</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.appointmentNeed}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Pernah Hadir?</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.attendedBefore}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Attachment Description</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.attachmentDescription}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                                            <p className="text-xs text-gray-500">Applicant Note</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.applicantNote}</p>
-                                        </div>
-                                    </div>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                                    <p className="text-xs text-gray-500">Keperluan Temujanji</p>
+                                    <p className="text-sm font-semibold text-gray-900">{viewingAppointment.appointmentNeed ?? '-'}</p>
                                 </div>
-                            );
-                        })()}
+                                <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                                    <p className="text-xs text-gray-500">Issue Summary</p>
+                                    <p className="text-sm font-semibold text-gray-900">{viewingAppointment.issueSummary ?? '-'}</p>
+                                </div>
+                                <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                    <p className="text-xs text-gray-500">Pernah Hadir?</p>
+                                    <p className="text-sm font-semibold text-gray-900">{viewingAppointment.attendedBefore ? 'YA' : 'TIDAK'}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h4 className="text-sm font-semibold text-gray-800">
+                                    Client Information Declaration
+                                </h4>
+                                {viewingAppointment.declaration && (
+                                    <span
+                                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${declarationStatusBadgeClass(viewingAppointment.declaration.status)}`}
+                                    >
+                                        {declarationStatusLabels[viewingAppointment.declaration.status]}
+                                    </span>
+                                )}
+                            </div>
+
+                            {!viewingAppointment.declaration ? (
+                                <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white px-3 py-4 text-center text-sm text-gray-500">
+                                    This client has not submitted their information declaration yet.
+                                </p>
+                            ) : (
+                                <div className="mt-3 space-y-3">
+                                    <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                        <p className="text-sm text-gray-800">
+                                            {viewingAppointment.declaration.declarationText}
+                                        </p>
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            Submitted: {viewingAppointment.declaration.submittedAt ?? '-'}
+                                            {viewingAppointment.declaration.verifiedByName
+                                                ? ` • Verified by ${viewingAppointment.declaration.verifiedByName} on ${viewingAppointment.declaration.verifiedAt ?? '-'}`
+                                                : ''}
+                                        </p>
+                                    </div>
+
+                                    {viewingAppointment.declaration.correctionNote && (
+                                        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                            <p className="font-semibold">Correction note</p>
+                                            <p className="mt-1">{viewingAppointment.declaration.correctionNote}</p>
+                                        </div>
+                                    )}
+
+                                    {viewingAppointment.declaration.status === 'verified' ? (
+                                        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-800">
+                                            This declaration has already been verified.
+                                        </p>
+                                    ) : (
+                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                            <label className="block space-y-1 text-sm">
+                                                <span className="font-medium text-gray-700">
+                                                    Correction note (required to request a correction)
+                                                </span>
+                                                <textarea
+                                                    value={declarationNote}
+                                                    onChange={(event) => setDeclarationNote(event.target.value)}
+                                                    rows={2}
+                                                    placeholder="What does the client need to correct?"
+                                                    className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100"
+                                                />
+                                            </label>
+                                            <div className="mt-2 flex flex-wrap justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    disabled={isVerifyingDeclaration}
+                                                    onClick={() =>
+                                                        handleRequestDeclarationCorrection(
+                                                            viewingAppointment.declaration!.id,
+                                                        )
+                                                    }
+                                                    className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                                                >
+                                                    Request Correction
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={isVerifyingDeclaration}
+                                                    onClick={() =>
+                                                        handleVerifyDeclaration(viewingAppointment.declaration!.id)
+                                                    }
+                                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                >
+                                                    Verify Declaration
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
 
                         <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
                             <h4 className="text-sm font-semibold text-indigo-900">Approval Workflow</h4>
@@ -1383,24 +1514,32 @@ export default function CounsellorAppointmentsPage() {
                                 </div>
                                 <div className="rounded-lg border border-indigo-200 bg-white p-3">
                                     <p className="text-xs text-gray-500">Admin Stage</p>
-                                    <p className="mt-1 text-sm font-semibold text-emerald-700">APPROVED</p>
+                                    <p
+                                        className={`mt-1 text-sm font-semibold ${
+                                            viewingAppointment.status === 'pending' ? 'text-amber-700' : 'text-emerald-700'
+                                        }`}
+                                    >
+                                        {viewingAppointment.status === 'pending' ? 'PENDING' : 'REVIEWED'}
+                                    </p>
+                                    <p className="mt-2 text-xs text-gray-500">Admin Note</p>
+                                    <p className="text-sm font-semibold text-gray-900">{viewingAppointment.adminReviewNote ?? '-'}</p>
                                 </div>
                                 <div className="rounded-lg border border-indigo-200 bg-white p-3">
                                     <p className="text-xs text-gray-500">Counsellor Stage</p>
                                     <p
                                         className={`mt-1 text-sm font-semibold ${
-                                            viewingAppointment.status === 'counsellor-reviewing'
-                                                ? 'text-amber-700'
-                                                : 'text-emerald-700'
+                                            isCounsellorApproved(viewingAppointment.status)
+                                                ? 'text-emerald-700'
+                                                : 'text-amber-700'
                                         }`}
                                     >
-                                        {viewingAppointment.status === 'counsellor-reviewing' ? 'PENDING' : 'APPROVED'}
+                                        {isCounsellorApproved(viewingAppointment.status) ? 'APPROVED' : 'PENDING'}
                                     </p>
                                     <p className="mt-2 text-xs text-gray-500">Counsellor Name</p>
                                     <p className="text-sm font-semibold text-gray-900">{viewingAppointment.counselor}</p>
                                     <p className="mt-2 text-xs text-gray-500">Counsellor Note</p>
                                     <textarea
-                                        value={counsellorNoteByRef[viewingAppointment.referenceNo] ?? ''}
+                                        value={counsellorNoteByRef[viewingAppointment.referenceNo] ?? viewingAppointment.counsellorReviewNote ?? ''}
                                         onChange={(event) =>
                                             setCounsellorNoteByRef((current) => ({
                                                 ...current,
@@ -1409,13 +1548,21 @@ export default function CounsellorAppointmentsPage() {
                                         }
                                         rows={3}
                                         placeholder="Add review notes for this appointment"
-                                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100"
+                                        disabled={
+                                            viewingAppointment.status !== 'needs_review' &&
+                                            viewingAppointment.status !== 'counsellor_reviewing'
+                                        }
+                                        className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100 disabled:bg-gray-100"
                                     />
-                                    {viewingAppointment.status === 'counsellor-reviewing' && (
+                                    {(viewingAppointment.status === 'needs_review' ||
+                                        viewingAppointment.status === 'counsellor_reviewing') && (
                                         <button
                                             type="button"
-                                            onClick={() => handleCounsellorApprove(viewingAppointment.referenceNo)}
-                                            className="mt-3 rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-900"
+                                            disabled={isReviewing}
+                                            onClick={() =>
+                                                handleCounsellorApprove(viewingAppointment.id, viewingAppointment.referenceNo)
+                                            }
+                                            className="mt-3 rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-900 disabled:opacity-60"
                                         >
                                             Approve Appointment
                                         </button>
@@ -1425,7 +1572,7 @@ export default function CounsellorAppointmentsPage() {
                         </div>
 
                         {(viewingAppointment.status === 'approved' ||
-                            viewingAppointment.status === 'on-going' ||
+                            viewingAppointment.status === 'on_going' ||
                             viewingAppointment.status === 'complete') && (
                             <div className="mt-4 flex flex-wrap gap-2">
                                 {viewingAppointment.status === 'approved' && (
@@ -1443,7 +1590,7 @@ export default function CounsellorAppointmentsPage() {
                                     </button>
                                 )}
 
-                                {viewingAppointment.status === 'on-going' && (
+                                {viewingAppointment.status === 'on_going' && (
                                     <button
                                         type="button"
                                         onClick={() => handleCompleteAppointment(viewingAppointment.referenceNo)}
@@ -1475,16 +1622,16 @@ export default function CounsellorAppointmentsPage() {
                         )}
 
                         {viewingAppointment.sessionType === 'online' &&
-                            meetingLinkByRef[viewingAppointment.referenceNo] && (
+                            (viewingAppointment.meetingLink || meetingLinkByRef[viewingAppointment.referenceNo]) && (
                                 <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                                    <p className="text-xs font-semibold text-emerald-900">Auto Generated Meeting Link</p>
+                                    <p className="text-xs font-semibold text-emerald-900">Meeting Link</p>
                                     <a
-                                        href={meetingLinkByRef[viewingAppointment.referenceNo]}
+                                        href={viewingAppointment.meetingLink ?? meetingLinkByRef[viewingAppointment.referenceNo]}
                                         target="_blank"
                                         rel="noreferrer"
                                         className="mt-1 block break-all text-sm font-semibold text-emerald-700 underline"
                                     >
-                                        {meetingLinkByRef[viewingAppointment.referenceNo]}
+                                        {viewingAppointment.meetingLink ?? meetingLinkByRef[viewingAppointment.referenceNo]}
                                     </a>
                                 </div>
                             )}

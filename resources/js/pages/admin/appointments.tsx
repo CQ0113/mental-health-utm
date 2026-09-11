@@ -1,9 +1,9 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AdminLayout from '@/components/admin/Layout';
 import { useConfirmDialog } from '@/components/shared/useConfirmDialog';
 import { adminAppointmentLocationOptions, adminCounselorOptions } from '@/lib/admin-mock-data';
-import { getMockClientByName, mockClientProfiles } from '@/lib/mock-clients';
+import { mockClientProfiles } from '@/lib/mock-clients';
 import { getAdminManagedSchedule } from '@/lib/psycare-admin-slots';
 import type { AdminScheduleDay, SessionType } from '@/lib/psycare-admin-slots';
 import {
@@ -13,7 +13,6 @@ import {
     upsertAttendanceSession,
 } from '@/lib/psycare-attendance';
 import type { AttendanceSession, AttendanceStatus } from '@/lib/psycare-attendance';
-import { adminPortalMockData } from '@/lib/psycare-data';
 
 type AppointmentCreateForm = {
     sessionMode: 'individual' | 'group';
@@ -42,74 +41,73 @@ const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(
 const addMonths = (date: Date, amount: number) =>
     new Date(date.getFullYear(), date.getMonth() + amount, 1);
 
-type AppointmentQueueItem = (typeof adminPortalMockData.appointmentRequests)[number] & {
+type AppointmentStatusValue =
+    | 'draft'
+    | 'pending'
+    | 'needs_review'
+    | 'counsellor_reviewing'
+    | 'approved'
+    | 'on_going'
+    | 'complete'
+    | 'completed'
+    | 'follow_up'
+    | 'closed';
+
+// Real backend shape (Admin\AppointmentController@present). Attendance,
+// group-session creation, and the walk-in "Create Appointment" modal below
+// are outside AS01-AS07's scope (Attendance is Phase 4; walk-in creation
+// isn't in the use cases at all) and stay on their existing mock content —
+// `sessionMode`/`clientFollowUpRequested`/`counsellorContinuationNeeded`
+// aren't backend-tracked yet, so they default rather than come from the API.
+type AppointmentQueueItem = {
+    id: string;
+    referenceNo: string;
+    clientName: string;
+    sessionType: SessionType;
     appointmentType: string;
+    preferredDate: string | null;
     slotLabel: string;
     location: string;
     counselorName: string;
+    appointmentNeed: string | null;
+    issueSummary: string | null;
+    attendedBefore: boolean;
+    status: AppointmentStatusValue;
+    adminReviewNote: string | null;
+    adminReviewedAt: string | null;
+    counsellorReviewNote: string | null;
+    counsellorReviewedAt: string | null;
+    meetingLink: string | null;
+    clientFollowUpRequested: boolean;
+    counsellorContinuationNeeded: boolean | null;
     sessionMode: 'individual' | 'group';
 };
 
-type SubmittedClientForm = {
-    clientTypeLabel: 'PELAJAR' | 'STAF' | 'GROUP';
-    matrixOrWorkerNo: string;
-    faculty: string;
-    appointmentNeed: string;
-    attendedBefore: 'YA' | 'TIDAK';
-    attachmentDescription: string;
-    applicantNote: string;
-    submittedAt: string;
-};
+const formatDate = (dateValue: string | null) =>
+    dateValue
+        ? new Date(`${dateValue}T00:00:00`).toLocaleDateString('en-GB', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+          })
+        : '-';
 
-type ApprovalWorkflow = {
-    applicantStatus: 'submitted';
-    adminStatus: 'pending' | 'approved';
-    adminName: string;
-    adminNote: string;
-    adminApprovedAt: string;
-    counsellorStatus: 'pending' | 'approved';
-    counsellorName: string;
-    counsellorApprovedAt: string;
-};
+// Statuses at or past the counsellor's AS07 approval — everything earlier
+// (pending, needs_review, counsellor_reviewing) still counts as PENDING for
+// the counsellor stage of the approval workflow.
+const isCounsellorApproved = (status: AppointmentStatusValue) =>
+    ['approved', 'on_going', 'complete', 'completed', 'follow_up', 'closed'].includes(status);
 
-const initialAppointmentRequests: AppointmentQueueItem[] =
-    adminPortalMockData.appointmentRequests.map((request) => ({
-        ...request,
-        appointmentType: request.clientFollowUpRequested ? 'SUSULAN' : 'BARU',
-        slotLabel: '-',
-        location: request.sessionType === 'online' ? 'ONLINE' : adminAppointmentLocationOptions[0],
-        counselorName: '-',
-        sessionMode: 'individual',
-    }));
-
-const formatDate = (dateValue: string) =>
-    new Date(`${dateValue}T00:00:00`).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-    });
-
-const getStatusBadgeClass = (
-    status:
-        | 'pending'
-        | 'needs-review'
-        | 'counsellor-reviewing'
-        | 'approved'
-        | 'on-going'
-        | 'complete'
-        | 'completed'
-        | 'follow-up'
-        | 'closed',
-) => {
+const getStatusBadgeClass = (status: AppointmentStatusValue) => {
     if (status === 'pending') {
         return 'bg-amber-100 text-amber-800';
     }
 
-    if (status === 'needs-review') {
+    if (status === 'needs_review') {
         return 'bg-amber-100 text-amber-800';
     }
 
-    if (status === 'counsellor-reviewing') {
+    if (status === 'counsellor_reviewing') {
         return 'bg-sky-100 text-sky-800';
     }
 
@@ -117,7 +115,7 @@ const getStatusBadgeClass = (
         return 'bg-indigo-100 text-indigo-800';
     }
 
-    if (status === 'on-going') {
+    if (status === 'on_going') {
         return 'bg-purple-100 text-purple-800';
     }
 
@@ -125,7 +123,7 @@ const getStatusBadgeClass = (
         return 'bg-emerald-100 text-emerald-800';
     }
 
-    if (status === 'follow-up') {
+    if (status === 'follow_up') {
         return 'bg-orange-100 text-orange-800';
     }
 
@@ -198,75 +196,13 @@ const toAdminAttendanceMap = (requests: AppointmentQueueItem[]) => {
     }, {});
 };
 
-const buildInitialSubmittedForms = (requests: AppointmentQueueItem[]) =>
-    requests.reduce<Record<string, SubmittedClientForm>>((accumulator, request) => {
-        const matchedClient = getMockClientByName(request.clientName);
+type PageProps = {
+    appointments: AppointmentQueueItem[];
+};
 
-        accumulator[request.id] = {
-            clientTypeLabel: request.sessionMode === 'group' ? 'GROUP' : matchedClient?.clientType === 'staff' ? 'STAF' : 'PELAJAR',
-            matrixOrWorkerNo:
-                request.sessionMode === 'group'
-                    ? '-'
-                    : matchedClient?.clientType === 'staff'
-                      ? matchedClient.workerNo ?? '-'
-                      : matchedClient?.matrixNo ?? '-',
-            faculty: matchedClient?.faculty ?? '-',
-            appointmentNeed: 'Tekanan akademik dan pengurusan emosi',
-            attendedBefore: 'TIDAK',
-            attachmentDescription: 'Lampiran sokongan berkaitan isu akademik.',
-            applicantNote: 'Mohon slot selepas jam 10 pagi jika boleh.',
-            submittedAt: request.preferredDate,
-        };
-
-        return accumulator;
-    }, {});
-
-const buildInitialApprovalWorkflow = (requests: AppointmentQueueItem[]) =>
-    requests.reduce<Record<string, ApprovalWorkflow>>((accumulator, request) => {
-        accumulator[request.id] = {
-            applicantStatus: 'submitted',
-            adminStatus: request.status === 'pending' ? 'pending' : 'approved',
-            adminName: 'Admin Queue Reviewer',
-            adminNote:
-                request.status === 'pending'
-                    ? 'Menunggu semakan admin.'
-                    : 'Diluluskan melalui semakan queue.',
-            adminApprovedAt:
-                request.status === 'pending'
-                    ? '-'
-                    : new Date().toLocaleDateString('en-GB'),
-            counsellorStatus:
-                request.status === 'approved' ||
-                request.status === 'on-going' ||
-                request.status === 'complete' ||
-                request.status === 'follow-up' ||
-                request.status === 'closed'
-                    ? 'approved'
-                    : 'pending',
-            counsellorName:
-                request.status === 'approved' ||
-                request.status === 'on-going' ||
-                request.status === 'complete' ||
-                request.status === 'follow-up' ||
-                request.status === 'closed'
-                    ? request.counselorName
-                    : '-',
-            counsellorApprovedAt:
-                request.status === 'approved' ||
-                request.status === 'on-going' ||
-                request.status === 'complete' ||
-                request.status === 'follow-up' ||
-                request.status === 'closed'
-                    ? new Date().toLocaleDateString('en-GB')
-                    : '-',
-        };
-
-        return accumulator;
-    }, {});
-
-export default function AdminAppointmentsPage() {
+export default function AdminAppointmentsPage({ appointments }: PageProps) {
     const { confirm, confirmDialog } = useConfirmDialog();
-    const [requests, setRequests] = useState<AppointmentQueueItem[]>(() => initialAppointmentRequests);
+    const [requests, setRequests] = useState<AppointmentQueueItem[]>(() => appointments);
     const [adminSchedule] = useState<AdminScheduleDay[]>(() => getAdminManagedSchedule());
     const [isCreateAppointmentOpen, setIsCreateAppointmentOpen] = useState(false);
     const [createForm, setCreateForm] = useState<AppointmentCreateForm>({
@@ -292,18 +228,20 @@ export default function AdminAppointmentsPage() {
     const [viewingRequest, setViewingRequest] = useState<AppointmentQueueItem | null>(null);
     const [viewingAttendanceRequest, setViewingAttendanceRequest] = useState<AppointmentQueueItem | null>(null);
     const [flashMessage, setFlashMessage] = useState('');
+    const [reviewNoteDrafts, setReviewNoteDrafts] = useState<Record<string, string>>({});
+    const [isReviewing, setIsReviewing] = useState(false);
     const [attendanceByRef, setAttendanceByRef] = useState<Record<string, AttendanceSession>>(() =>
-        toAdminAttendanceMap(initialAppointmentRequests),
-    );
-    const [submittedFormByRequestId, setSubmittedFormByRequestId] = useState<Record<string, SubmittedClientForm>>(
-        () => buildInitialSubmittedForms(initialAppointmentRequests),
-    );
-    const [approvalByRequestId, setApprovalByRequestId] = useState<Record<string, ApprovalWorkflow>>(
-        () => buildInitialApprovalWorkflow(initialAppointmentRequests),
+        toAdminAttendanceMap(appointments),
     );
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [sessionTypeFilter, setSessionTypeFilter] = useState('all');
+
+    // Re-sync from the server after every Inertia visit (e.g. after a review
+    // action's redirect-back refreshes this page's props).
+    useEffect(() => {
+        setRequests(appointments);
+    }, [appointments]);
 
     useEffect(() => {
         const handleAttendanceRefresh = () => {
@@ -467,8 +405,11 @@ export default function AdminAppointmentsPage() {
             return;
         }
 
+        // Not persisted — AS01-AS07 don't cover admin-initiated walk-in/group
+        // bookings, so this stays a local-only demo of the queue card UI.
         const newRequest: AppointmentQueueItem = {
             id: createForm.referenceNo.trim(),
+            referenceNo: createForm.referenceNo.trim(),
             clientName: resolvedClientName,
             sessionType: createForm.sessionType,
             preferredDate: appointmentDate,
@@ -479,6 +420,14 @@ export default function AdminAppointmentsPage() {
             slotLabel: selectedSlot.label,
             location: createForm.location,
             counselorName: createForm.counselorName,
+            appointmentNeed: createForm.purposeNote.trim() || null,
+            issueSummary: null,
+            attendedBefore: false,
+            adminReviewNote: null,
+            adminReviewedAt: null,
+            counsellorReviewNote: null,
+            counsellorReviewedAt: null,
+            meetingLink: null,
             sessionMode: createForm.sessionMode,
         };
 
@@ -507,45 +456,6 @@ export default function AdminAppointmentsPage() {
         setAttendanceByRef((current) => ({
             ...current,
             [newRequest.id]: getAttendanceSessionByRef(newRequest.id, newRequest.clientName),
-        }));
-        setSubmittedFormByRequestId((current) => ({
-            ...current,
-            [newRequest.id]: {
-                clientTypeLabel:
-                    createForm.sessionMode === 'group'
-                        ? 'GROUP'
-                        : mockClientProfiles.find((client) => client.id === createForm.clientId)?.clientType ===
-                            'staff'
-                          ? 'STAF'
-                          : 'PELAJAR',
-                matrixOrWorkerNo:
-                    createForm.sessionMode === 'group'
-                        ? '-'
-                        : mockClientProfiles.find((client) => client.id === createForm.clientId)?.clientType ===
-                            'staff'
-                          ? mockClientProfiles.find((client) => client.id === createForm.clientId)?.workerNo ?? '-'
-                          : mockClientProfiles.find((client) => client.id === createForm.clientId)?.matrixNo ?? '-',
-                faculty: createForm.sessionMode === 'group' ? '-' : mockClientProfiles.find((client) => client.id === createForm.clientId)?.faculty ?? '-',
-                appointmentNeed:
-                    createForm.purposeNote.trim() || 'Temujanji dibuat melalui admin queue.',
-                attendedBefore: 'TIDAK',
-                attachmentDescription: 'Lampiran dikemaskini oleh pemohon.',
-                applicantNote: 'Permohonan diterima melalui aliran queue.',
-                submittedAt: appointmentDate,
-            },
-        }));
-        setApprovalByRequestId((current) => ({
-            ...current,
-            [newRequest.id]: {
-                applicantStatus: 'submitted',
-                adminStatus: 'pending',
-                adminName: 'Admin Queue Reviewer',
-                adminNote: 'Menunggu semakan admin.',
-                adminApprovedAt: '-',
-                counsellorStatus: 'pending',
-                counsellorName: '-',
-                counsellorApprovedAt: '-',
-            },
         }));
         setIsCreateAppointmentOpen(false);
         setCreateForm((current) => ({
@@ -679,6 +589,9 @@ export default function AdminAppointmentsPage() {
         setFlashMessage(`Attendance for ${requestId} saved.`);
     };
 
+    // AS07 AF2 — Admin moves a pending request to `counsellor_reviewing`
+    // (real backend call; the Counsellor half happens in the Counsellor
+    // portal, per AS07 EF3).
     const handleApproveRequest = async (requestId: string) => {
         const approved = await confirm({
             title: 'Approve Request',
@@ -690,54 +603,27 @@ export default function AdminAppointmentsPage() {
             return;
         }
 
-        setRequests((current) =>
-            current.map((request) =>
-                request.id === requestId
-                    ? {
-                          ...request,
-                          status: 'counsellor-reviewing',
-                      }
-                    : request,
-            ),
-        );
-        setApprovalByRequestId((current) => ({
-            ...current,
-            [requestId]: {
-                ...(current[requestId] ?? {
-                    applicantStatus: 'submitted',
-                    adminStatus: 'pending',
-                    adminName: 'Admin Queue Reviewer',
-                    adminNote: '',
-                    adminApprovedAt: '-',
-                    counsellorStatus: 'pending',
-                    counsellorName: '-',
-                    counsellorApprovedAt: '-',
-                }),
-                adminStatus: 'approved',
-                adminApprovedAt: new Date().toLocaleDateString('en-GB'),
+        setIsReviewing(true);
+
+        router.patch(
+            `/admin/appointments/${requestId}/review`,
+            { decision: 'counsellor_reviewing', note: reviewNoteDrafts[requestId] ?? '' },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setViewingRequest(null);
+                    setFlashMessage(`Request ${requestId} moved to counsellor reviewing.`);
+                },
+                onError: (errors) => {
+                    setFlashMessage(Object.values(errors)[0] ?? 'Could not update this appointment.');
+                },
+                onFinish: () => setIsReviewing(false),
             },
-        }));
-        setViewingRequest(null);
-        setFlashMessage(`Request ${requestId} moved to counsellor reviewing.`);
+        );
     };
 
     const handleAdminReviewNoteChange = (requestId: string, note: string) => {
-        setApprovalByRequestId((current) => ({
-            ...current,
-            [requestId]: {
-                ...(current[requestId] ?? {
-                    applicantStatus: 'submitted',
-                    adminStatus: 'pending',
-                    adminName: 'Admin Queue Reviewer',
-                    adminNote: '',
-                    adminApprovedAt: '-',
-                    counsellorStatus: 'pending',
-                    counsellorName: '-',
-                    counsellorApprovedAt: '-',
-                }),
-                adminNote: note,
-            },
-        }));
+        setReviewNoteDrafts((current) => ({ ...current, [requestId]: note }));
     };
 
     const filteredRequests = useMemo(() => {
@@ -757,8 +643,6 @@ export default function AdminAppointmentsPage() {
         });
     }, [requests, searchTerm, statusFilter, sessionTypeFilter]);
 
-    const viewingSubmittedForm = viewingRequest ? submittedFormByRequestId[viewingRequest.id] : null;
-    const viewingApprovalWorkflow = viewingRequest ? approvalByRequestId[viewingRequest.id] : null;
 
     return (
         <>
@@ -806,11 +690,13 @@ export default function AdminAppointmentsPage() {
                             >
                                 <option value="all">All Statuses</option>
                                 <option value="pending">Pending</option>
-                                <option value="counsellor-reviewing">Counsellor Reviewing</option>
+                                <option value="needs_review">Needs Review</option>
+                                <option value="counsellor_reviewing">Counsellor Reviewing</option>
                                 <option value="approved">Approved</option>
-                                <option value="on-going">On-going</option>
+                                <option value="on_going">On-going</option>
                                 <option value="complete">Complete</option>
-                                <option value="follow-up">Follow-up</option>
+                                <option value="completed">Completed</option>
+                                <option value="follow_up">Follow-up</option>
                                 <option value="closed">Closed</option>
                             </select>
                         </label>
@@ -841,7 +727,7 @@ export default function AdminAppointmentsPage() {
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div className="space-y-1 text-sm text-gray-700">
                                         <p className="text-base font-semibold text-gray-900">{request.clientName}</p>
-                                        <p><span className="font-semibold text-gray-900">No. Rujukan:</span> {request.id}</p>
+                                        <p><span className="font-semibold text-gray-900">No. Rujukan:</span> {request.referenceNo}</p>
                                         <p><span className="font-semibold text-gray-900">Jenis Temujanji:</span> {request.appointmentType}</p>
                                         <p><span className="font-semibold text-gray-900">Session Mode:</span> {request.sessionMode === 'group' ? 'GROUP' : 'INDIVIDUAL'}</p>
                                         <p><span className="font-semibold text-gray-900">Tarikh:</span> {formatDate(request.preferredDate)}</p>
@@ -877,7 +763,7 @@ export default function AdminAppointmentsPage() {
                                             View
                                         </button>
 
-                                        {(request.status === 'follow-up' || request.status === 'closed') && (
+                                        {(request.status === 'follow_up' || request.status === 'closed') && (
                                             <span
                                                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getContinuationBadgeClass(request.counsellorContinuationNeeded)}`}
                                             >
@@ -1185,8 +1071,8 @@ export default function AdminAppointmentsPage() {
 
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                    <p className="text-xs text-gray-500">Request ID</p>
-                                    <p className="text-sm font-semibold text-gray-900">{viewingRequest.id}</p>
+                                    <p className="text-xs text-gray-500">Reference No</p>
+                                    <p className="text-sm font-semibold text-gray-900">{viewingRequest.referenceNo}</p>
                                 </div>
                                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                                     <p className="text-xs text-gray-500">Client Name</p>
@@ -1232,121 +1118,100 @@ export default function AdminAppointmentsPage() {
                                 </div>
                             </div>
 
-                            {viewingSubmittedForm && (
-                                <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                    <h4 className="text-sm font-semibold text-gray-800">Submitted Client Form Snapshot</h4>
+                            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                <h4 className="text-sm font-semibold text-gray-800">Submitted Request Detail</h4>
 
-                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Client Type</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.clientTypeLabel}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">No. Matrik / No. Pekerja</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.matrixOrWorkerNo}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Faculty / PTJ</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.faculty}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Submitted At</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.submittedAt}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                                            <p className="text-xs text-gray-500">Keperluan Temujanji</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.appointmentNeed}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Pernah Hadir?</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.attendedBefore}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Attachment Description</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.attachmentDescription}</p>
-                                        </div>
-                                        <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                                            <p className="text-xs text-gray-500">Applicant Note</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingSubmittedForm.applicantNote}</p>
-                                        </div>
+                                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                    <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                                        <p className="text-xs text-gray-500">Keperluan Temujanji</p>
+                                        <p className="text-sm font-semibold text-gray-900">{viewingRequest.appointmentNeed ?? '-'}</p>
                                     </div>
+                                    <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                                        <p className="text-xs text-gray-500">Issue Summary</p>
+                                        <p className="text-sm font-semibold text-gray-900">{viewingRequest.issueSummary ?? '-'}</p>
+                                    </div>
+                                    <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                        <p className="text-xs text-gray-500">Pernah Hadir?</p>
+                                        <p className="text-sm font-semibold text-gray-900">{viewingRequest.attendedBefore ? 'YA' : 'TIDAK'}</p>
+                                    </div>
+                                    {viewingRequest.meetingLink && (
+                                        <div className="rounded-lg border border-gray-200 bg-white p-3">
+                                            <p className="text-xs text-gray-500">Meeting Link</p>
+                                            <a
+                                                href={viewingRequest.meetingLink}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-sm font-semibold text-red-800 underline"
+                                            >
+                                                {viewingRequest.meetingLink}
+                                            </a>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            </div>
 
-                            {viewingApprovalWorkflow && (
-                                <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
-                                    <h4 className="text-sm font-semibold text-indigo-900">Approval Workflow</h4>
+                            <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                                <h4 className="text-sm font-semibold text-indigo-900">Approval Workflow</h4>
 
-                                    <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                                        <div className="rounded-lg border border-indigo-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Pengesahan Pemohon</p>
-                                            <p className="mt-1 text-sm font-semibold text-emerald-700">SUBMITTED</p>
-                                        </div>
-
-                                        <div className="rounded-lg border border-indigo-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Semakan Admin</p>
-                                            <p className={`mt-1 text-sm font-semibold ${viewingApprovalWorkflow.adminStatus === 'approved' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                                {viewingApprovalWorkflow.adminStatus.toUpperCase()}
-                                            </p>
-                                            <p className="mt-2 text-xs text-gray-500">Admin Name</p>
-                                            <p className="text-sm font-semibold text-gray-900">{viewingApprovalWorkflow.adminName}</p>
-                                            <p className="mt-2 text-xs text-gray-500">Admin Note</p>
-                                            <textarea
-                                                value={viewingApprovalWorkflow.adminNote}
-                                                onChange={(event) =>
-                                                    handleAdminReviewNoteChange(viewingRequest.id, event.target.value)
-                                                }
-                                                rows={3}
-                                                className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100"
-                                            />
-                                            <p className="mt-2 text-xs text-gray-500">Approved At: {viewingApprovalWorkflow.adminApprovedAt}</p>
-                                            {viewingRequest.status === 'pending' ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleApproveRequest(viewingRequest.id)}
-                                                    className="mt-3 rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-900"
-                                                >
-                                                    Approve (Move to Counsellor Reviewing)
-                                                </button>
-                                            ) : null}
-                                        </div>
-
-                                        <div className="rounded-lg border border-indigo-200 bg-white p-3">
-                                            <p className="text-xs text-gray-500">Pengesahan Pegawai Psikologi</p>
-                                            <p className={`mt-1 text-sm font-semibold ${viewingApprovalWorkflow.counsellorStatus === 'approved' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                                {viewingApprovalWorkflow.counsellorStatus.toUpperCase()}
-                                            </p>
-                                            <p className="mt-2 text-xs text-gray-500">Counsellor Name</p>
-                                            <p className="text-sm font-semibold text-gray-900">
-                                                {viewingRequest.status === 'approved' ||
-                                                viewingRequest.status === 'on-going' ||
-                                                viewingRequest.status === 'complete' ||
-                                                viewingRequest.status === 'follow-up' ||
-                                                viewingRequest.status === 'closed'
-                                                    ? viewingRequest.counselorName
-                                                    : '-'}
-                                            </p>
-                                            <p className="mt-2 text-xs text-gray-500">
-                                                Approved At:{' '}
-                                                {viewingRequest.status === 'approved' ||
-                                                viewingRequest.status === 'on-going' ||
-                                                viewingRequest.status === 'complete' ||
-                                                viewingRequest.status === 'follow-up' ||
-                                                viewingRequest.status === 'closed'
-                                                    ? viewingApprovalWorkflow.counsellorApprovedAt
-                                                    : '-'}
-                                            </p>
+                                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                                    <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                                        <p className="text-xs text-gray-500">Semakan Admin</p>
+                                        <p
+                                            className={`mt-1 text-sm font-semibold ${
+                                                viewingRequest.status === 'pending' ? 'text-amber-700' : 'text-emerald-700'
+                                            }`}
+                                        >
+                                            {viewingRequest.status === 'pending' ? 'PENDING' : 'REVIEWED'}
+                                        </p>
+                                        <p className="mt-2 text-xs text-gray-500">Admin Note</p>
+                                        <textarea
+                                            value={reviewNoteDrafts[viewingRequest.id] ?? viewingRequest.adminReviewNote ?? ''}
+                                            onChange={(event) => handleAdminReviewNoteChange(viewingRequest.id, event.target.value)}
+                                            rows={3}
+                                            disabled={viewingRequest.status !== 'pending'}
+                                            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-indigo-700 focus:ring-1 focus:ring-indigo-100 disabled:bg-gray-100"
+                                        />
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            Reviewed At: {viewingRequest.adminReviewedAt ?? '-'}
+                                        </p>
+                                        {viewingRequest.status === 'pending' ? (
                                             <button
                                                 type="button"
-                                                disabled
-                                                className="mt-3 rounded-lg border border-gray-300 bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-500"
+                                                disabled={isReviewing}
+                                                onClick={() => handleApproveRequest(viewingRequest.id)}
+                                                className="mt-3 rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-900 disabled:opacity-60"
                                             >
-                                                Counsellor stage handled in Counsellor Portal
+                                                Approve (Move to Counsellor Reviewing)
                                             </button>
-                                        </div>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="rounded-lg border border-indigo-200 bg-white p-3">
+                                        <p className="text-xs text-gray-500">Pengesahan Pegawai Psikologi</p>
+                                        <p
+                                            className={`mt-1 text-sm font-semibold ${
+                                                isCounsellorApproved(viewingRequest.status)
+                                                    ? 'text-emerald-700'
+                                                    : 'text-amber-700'
+                                            }`}
+                                        >
+                                            {isCounsellorApproved(viewingRequest.status) ? 'APPROVED' : 'PENDING'}
+                                        </p>
+                                        <p className="mt-2 text-xs text-gray-500">Counsellor Note</p>
+                                        <p className="text-sm font-semibold text-gray-900">{viewingRequest.counsellorReviewNote ?? '-'}</p>
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            Reviewed At: {viewingRequest.counsellorReviewedAt ?? '-'}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            disabled
+                                            className="mt-3 rounded-lg border border-gray-300 bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-500"
+                                        >
+                                            Counsellor stage handled in Counsellor Portal
+                                        </button>
                                     </div>
                                 </div>
-                            )}
+                            </div>
                         </div>
                     </div>
                 )}
